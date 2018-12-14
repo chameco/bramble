@@ -1,0 +1,85 @@
+name:                bramble
+version:             0.1.0.0
+github:              "chameco/bramble"
+license:             BSD3
+author:              "Samuel Breese"
+maintainer:          "samuel@chame.co"
+copyright:           "2018 Samuel Breese"
+
+extra-source-files:
+- README.md
+
+description:         Please see the README on GitHub at <https://github.com/githubuser/bramble#readme>
+
+ghc-options:
+- -Wall
+- -Werror
+
+dependencies:
+- base
+- text
+- text-show
+- bytestring
+
+default-extensions:
+- NoImplicitPrelude
+- TupleSections
+- LambdaCase
+- MultiWayIf
+- TypeOperators
+- OverloadedStrings
+- OverloadedLists
+- ViewPatterns
+- PatternSynonyms
+- ExplicitForAll
+- TypeApplications
+- ScopedTypeVariables
+- RankNTypes
+- LiberalTypeSynonyms
+- NamedFieldPuns
+- RecordWildCards
+- FlexibleInstances
+- FlexibleContexts
+- DeriveFunctor
+- DeriveFoldable
+- DeriveTraversable
+- GeneralizedNewtypeDeriving
+- InstanceSigs
+- ConstrainedClassMethods
+- MultiParamTypeClasses
+- FunctionalDependencies
+- DeriveGeneric
+- NamedWildCards
+- PartialTypeSignatures
+- ExistentialQuantification
+- GADTSyntax
+- GADTs
+- TypeFamilies
+- TypeFamilyDependencies
+- AllowAmbiguousTypes
+- KindSignatures
+- ConstraintKinds
+- DataKinds
+- PolyKinds
+- TypeInType
+- EmptyCase
+- StandaloneDeriving
+- DefaultSignatures
+- DeriveAnyClass
+- DerivingStrategies
+- DisambiguateRecordFields
+- DuplicateRecordFields
+- OverloadedLabels
+- BangPatterns
+- ApplicativeDo
+- NegativeLiterals
+- NumDecimals
+- BinaryLiterals
+- QuasiQuotes
+- UnicodeSyntax
+- NoMonomorphismRestriction
+- PostfixOperators
+- PackageImports
+
+library:
+  source-dirs: src
