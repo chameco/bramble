@@ -4,6 +4,7 @@ import Data.Foldable (foldr)
 import Data.Functor ((<$>))
 import Data.Function (flip, ($))
 import Data.Eq (Eq)
+import Data.Maybe (Maybe(..))
 import Data.Text (Text)
 
 import Text.Show (Show)
@@ -30,7 +31,10 @@ deriving instance Eq Statement
 compile :: Expression -> NameTerm
 compile (The ty t) = NameAnnotate (compile t) $ compile ty
 compile Type = NameStar
-compile (Forall ns b) = foldr (\(n, t) b' -> NamePi n (compile t) b') (compile b) ns
+compile (Forall [] b) = NamePi Nothing (NameFree "Unit") $ compile b
+compile (Forall ns b) = foldr (\(n, t) b' -> NamePi (Just n) (compile t) b') (compile b) ns
 compile (Var n) = NameFree n
+compile (Call f []) = NameApply (compile f) $ NameFree "nil"
 compile (Call f args) = foldr (flip NameApply) (compile f) $ compile <$> args
-compile (Fun ns b) = foldr NameLambda (compile b) ns
+compile (Fun [] b) = NameLambda Nothing (compile b)
+compile (Fun ns b) = foldr NameLambda (compile b) $ Just <$> ns

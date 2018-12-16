@@ -1,17 +1,22 @@
-module Bramble.Frontend.Parser where
+module Bramble.Frontend.Parser
+  ( parseSExp
+  ) where
 
-import Control.Applicative ((*>), (<*))
+import Control.Applicative (pure, (*>), (<*))
+import Control.Exception.Safe (MonadThrow, throwString)
 
 import Data.Void (Void)
+import Data.Monoid (mconcat)
 import Data.Function (($), (.))
 import Data.Functor ((<$>))
+import Data.Either (Either(..))
 import Data.Bool (not, (||))
 import Data.Char(Char, isSpace)
 import Data.List (elem)
 import Data.String (String)
-import Data.Text (Text, pack)
+import Data.Text (Text, pack, unpack)
 
-import Text.Megaparsec (Parsec, some, many, (<|>))
+import Text.Megaparsec (Parsec, parse, parseErrorPretty, some, many, (<|>))
 import Text.Megaparsec.Char (satisfy, char, spaceChar)
 
 import Bramble.Frontend.AST
@@ -27,3 +32,8 @@ sexp = many spaceChar *>
         symchar = satisfy $ \c -> not (isSpace c || c `elem` special)
         special :: String
         special = "()"
+
+parseSExp :: MonadThrow m => Text -> Text -> m SExp
+parseSExp file d = case parse sexp (unpack file) d of
+  Left err -> throwString $ mconcat ["Parse error: ", parseErrorPretty err]
+  Right x -> pure x

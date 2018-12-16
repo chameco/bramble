@@ -10,6 +10,7 @@ import Control.Exception.Safe (MonadThrow, throwString)
 import Data.Monoid (mconcat)
 import Data.Functor (fmap, (<$>))
 import Data.Function (($), (.))
+import Data.Maybe (Maybe(..))
 import Data.Eq (Eq, (==))
 import Data.Bool (otherwise)
 import Data.Int (Int)
@@ -23,11 +24,11 @@ import Bramble.Core.AST
 data NameTerm where
   NameAnnotate :: NameTerm -> NameTerm -> NameTerm
   NameStar :: NameTerm
-  NamePi :: Text -> NameTerm -> NameTerm -> NameTerm
+  NamePi :: Maybe Text -> NameTerm -> NameTerm -> NameTerm
   NameFree :: Text -> NameTerm
   NameBound :: Int -> NameTerm
   NameApply :: NameTerm -> NameTerm -> NameTerm
-  NameLambda :: Text -> NameTerm -> NameTerm
+  NameLambda :: Maybe Text -> NameTerm -> NameTerm
 
   NameADT :: Text -> Sum NameTerm -> NameTerm
   NameADTConstruct :: Text -> NameTerm -> [NameTerm] -> NameTerm
@@ -35,14 +36,14 @@ data NameTerm where
 deriving instance Show NameTerm
 deriving instance Eq NameTerm
 
-debruijn :: Text -> Int -> NameTerm -> NameTerm
+debruijn :: Maybe Text -> Int -> NameTerm -> NameTerm
 debruijn n i (NameAnnotate e t) = NameAnnotate (debruijn n i e) $ debruijn n i t
 debruijn _ _ NameStar = NameStar
 debruijn n i (NamePi n' t b)
   | n == n' = NamePi n' (debruijn n i t) b
   | otherwise = NamePi n' (debruijn n i t) $ debruijn n (i + 1) b
 debruijn n i a@(NameFree n')
-  | n == n' = NameBound i
+  | n == Just n' = NameBound i
   | otherwise = a
 debruijn _ _ x@NameBound{} = x
 debruijn n i (NameApply f x) = NameApply (debruijn n i f) $ debruijn n i x
