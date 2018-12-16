@@ -1,13 +1,25 @@
 module Bramble.Core.AST where
 
-import Prelude
+import GHC.Num ((+), (-))
+import GHC.Err (error)
 
-import Control.Monad (forM_, unless)
+import Control.Applicative (pure)
+import Control.Monad (mapM_, forM_, unless)
 import Control.Arrow (second)
 import Control.Exception.Safe
 
-import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Monoid (mconcat, (<>))
+import Data.Functor (fmap, (<$>))
+import Data.Foldable (foldr)
+import Data.Eq (Eq, (==))
+import Data.Function (flip, const, ($), (.))
+import Data.Maybe (Maybe(..))
+import Data.List (length, zip, lookup, (!!))
+import Data.Bool (otherwise)
+import Data.Int (Int)
+import Data.Text (Text, pack, unpack, intercalate)
+
+import Text.Show (Show, show)
 
 import Bramble.Utility.Pretty
 import Bramble.Core.ADT
@@ -26,8 +38,8 @@ deriving instance Eq Name
 
 instance Pretty Name where
   pretty (Name n) = n
-  pretty (Quote i) = mconcat ["<quote-", T.pack $ show i, ">"]
-  pretty (Local i) = mconcat ["<local-", T.pack $ show i, ">"]
+  pretty (Quote i) = mconcat ["<quote-", pack $ show i, ">"]
+  pretty (Local i) = mconcat ["<local-", pack $ show i, ">"]
 
 data TermInf where
   Annotate :: TermCheck -> TermCheck -> TermInf
@@ -47,12 +59,12 @@ instance Pretty TermInf where
   pretty (Annotate e t) = mconcat ["[", pretty e, " : ", pretty t, "]"]
   pretty Star = "Type"
   pretty (Pi t b) = mconcat ["Π", pretty t, ".", pretty b]
-  pretty (Bound i) = T.pack $ show i
+  pretty (Bound i) = pack $ show i
   pretty (Free n) = pretty n
   pretty (Apply f x) = mconcat ["(", pretty f, " ", pretty x, ")"]
   pretty (ADT n s) = mconcat ["{", n, " = ", pretty s, "}"]
-  pretty (ADTConstruct cn _ args) = "{" <> cn <> " " <> T.intercalate " " (pretty <$> args) <> "}"
-  pretty (ADTEliminate x _ hs) = "{" <> pretty x <> " ! " <> T.intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
+  pretty (ADTConstruct cn _ args) = "{" <> cn <> " " <> intercalate " " (pretty <$> args) <> "}"
+  pretty (ADTEliminate x _ hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
 
 data TermCheck where
   Inf :: TermInf -> TermCheck
@@ -161,10 +173,10 @@ typeInf i env (Apply f x) = do
     VPi t b -> do
       typeCheck i env x t
       pure . b $ evalCheck x []
-    _ -> throwString $ mconcat
-      [ "Illegal application of \"", T.unpack $ pretty f
-      , "\" (with type \"", T.unpack . pretty $ quote ft
-      , "\") to \"", T.unpack $ pretty x, "\""
+    _ -> throwString . unpack $ mconcat
+      [ "Illegal application of \"", pretty f
+      , "\" (with type \"", pretty $ quote ft
+      , "\") to \"", pretty x, "\""
       ]
 typeInf i env (ADT _ s) = do
   validateSum i env s
@@ -178,18 +190,18 @@ typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
                   let ft' = evalCheck ft []
                   typeCheck i env a ft'
                 pure t'
-        else throwString $ mconcat
-             [ "Constructor arity mismatch for \"", T.unpack cn
-             , "\": expected ", show $ length fs
-             , " but received ", show $ length args
+        else throwString . unpack $ mconcat
+             [ "Constructor arity mismatch for \"", cn
+             , "\": expected ", pack . show $ length fs
+             , " but received ", pack . show $ length args
              ]
-      Nothing -> throwString $ mconcat
-                 [ "The ADT \"", T.unpack n
-                 , "\" does not have the constructor \"", T.unpack cn, "\""
+      Nothing -> throwString . unpack $ mconcat
+                 [ "The ADT \"", n
+                 , "\" does not have the constructor \"", cn, "\""
                  ]
-  _ -> throwString $ mconcat
-    [ "Attempt to construct non-ADT type \"", T.unpack $ pretty t
-    , "\" using constructor \"", T.unpack cn, "\""
+  _ -> throwString . unpack $ mconcat
+    [ "Attempt to construct non-ADT type \"", pretty t
+    , "\" using constructor \"", cn, "\""
     ]
 typeInf i env (ADTEliminate x t hs) = do
   xt <- typeInf i env x
@@ -203,33 +215,33 @@ typeInf i env (ADTEliminate x t hs) = do
           case lookupProduct cn s of
             Just (Product _ p) ->
               typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t' $ flip evalCheck [] <$> p
-            _ -> throwString $ mconcat
-              [ "The ADT \"", T.unpack n
-              , "\" does not have the constructor \"", T.unpack cn, "\""
+            _ -> throwString . unpack $ mconcat
+              [ "The ADT \"", n
+              , "\" does not have the constructor \"", cn, "\""
               ]
         pure . VPi xt $ const t'
-      else throwString $ mconcat
-           [ "Not enough cases to eliminate \"", T.unpack n
-           , "\": expected ", show $ length ps
-           , " but received ", show $ length hs
+      else throwString . unpack $ mconcat
+           [ "Not enough cases to eliminate \"", n
+           , "\": expected ", pack . show $ length ps
+           , " but received ", pack . show $ length hs
            ]
-    _ -> throwString $ mconcat
-         [ "Attempt to eliminate term \"", T.unpack $ pretty x
-         , "\" of non-ADT type \"", T.unpack . pretty $ quote xt, "\""
+    _ -> throwString . unpack $ mconcat
+         [ "Attempt to eliminate term \"", pretty x
+         , "\" of non-ADT type \"", pretty $ quote xt, "\""
          ]
 typeCheck :: MonadThrow m => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
 typeCheck i env (Inf x) v = do
   v' <- typeInf i env x
-  unless (quote v == quote v') . throwString $ mconcat
-    [ "Type mismatch: expected \"", T.unpack . pretty $ quote v
-    , "\" but found \"", T.unpack $ pretty x
-    , "\" with type \"", T.unpack . pretty $ quote v', "\""
+  unless (quote v == quote v') . throwString . unpack $ mconcat
+    [ "Type mismatch: expected \"", pretty $ quote v
+    , "\" but found \"", pretty x
+    , "\" with type \"", pretty $ quote v', "\""
     ]
 typeCheck i env (Lambda b) (VPi t b') =
   typeCheck (i + 1) ((Local i, t):env) (substCheck 0 (Free (Local i)) b) . b' . VNeutral . NFree $ Local i
-typeCheck _ _ x v = throwString $ mconcat
-  [ "Structural type mismatch: expected \"", T.unpack . pretty $ quote v
-  , "\" but found \"", T.unpack $ pretty x, "\""
+typeCheck _ _ x v = throwString . unpack $ mconcat
+  [ "Structural type mismatch: expected \"", pretty $ quote v
+  , "\" but found \"", pretty x, "\""
   ]
 
 data Term = TermInf TermInf
