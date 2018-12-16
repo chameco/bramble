@@ -18,8 +18,10 @@ import Data.Text (Text, unpack)
 
 import Text.Show (Show)
 
+import Bramble.Utility.Pretty
 import Bramble.Core.ADT
 import Bramble.Core.AST
+import Bramble.Core.Vernacular
 
 data NameTerm where
   NameAnnotate :: NameTerm -> NameTerm -> NameTerm
@@ -54,26 +56,29 @@ debruijn _ _ x@NameADT{} = x
 debruijn n i (NameADTConstruct n' t args) = NameADTConstruct n' (debruijn n i t) $ debruijn n i <$> args
 debruijn n i (NameADTEliminate x t args) = NameADTEliminate (debruijn n i x) (debruijn n i t) $ second (debruijn n i) <$> args
 
-rename :: MonadThrow m => NameTerm -> m Term
-rename (NameAnnotate e t) = TermInf <$> (Annotate
-                                         <$> (repr <$> rename e)
-                                         <*> (repr <$> rename t))
-rename NameStar = pure $ TermInf Star
-rename (NamePi n t b) = TermInf <$> (Pi
-                                     <$> (repr <$> rename t)
-                                     <*> (repr <$> rename (debruijn n 0 b)))
-rename (NameFree n) = pure . TermInf . Free $ Name n
-rename (NameBound i) = pure . TermInf $ Bound i
-rename (NameApply f x) = do
-  rf <- rename f
+renameTerm :: MonadThrow m => NameTerm -> m Term
+renameTerm (NameAnnotate e t) = TermInf <$> (Annotate
+                                         <$> (repr <$> renameTerm e)
+                                         <*> (repr <$> renameTerm t))
+renameTerm NameStar = pure $ TermInf Star
+renameTerm (NamePi n t b) = TermInf <$> (Pi
+                                     <$> (repr <$> renameTerm t)
+                                     <*> (repr <$> renameTerm (debruijn n 0 b)))
+renameTerm (NameFree n) = pure . TermInf . Free $ Name n
+renameTerm (NameBound i) = pure . TermInf $ Bound i
+renameTerm (NameApply f x) = do
+  rf <- renameTerm f
   case rf of
-    TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", prettyCheck y, "\""]
-    TermInf y -> TermInf <$> (Apply y <$> (repr <$> rename x))
-rename (NameLambda n b) = TermCheck <$> (Lambda <$> (repr <$> rename (debruijn n 0 b)))
-rename (NameADT n s) = TermInf <$> (ADT n <$> mapM (fmap repr . rename) s)
-rename (NameADTConstruct n t args) = TermInf <$> (ADTConstruct n <$> (repr <$> rename t) <*> mapM (fmap repr . rename) args)
-rename (NameADTEliminate x t args) = do
-  rx <- rename x
+    TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
+    TermInf y -> TermInf <$> (Apply y <$> (repr <$> renameTerm x))
+renameTerm (NameLambda n b) = TermCheck <$> (Lambda <$> (repr <$> renameTerm (debruijn n 0 b)))
+renameTerm (NameADT n s) = TermInf <$> (ADT n <$> mapM (fmap repr . renameTerm) s)
+renameTerm (NameADTConstruct n t args) = TermInf <$> (ADTConstruct n <$> (repr <$> renameTerm t) <*> mapM (fmap repr . renameTerm) args)
+renameTerm (NameADTEliminate x t args) = do
+  rx <- renameTerm x
   case rx of
-    TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", prettyCheck y, "\""]
-    TermInf y -> TermInf <$> (ADTEliminate y <$> (repr <$> rename t) <*> mapM (\(n, z) -> (n,) . repr <$> rename z) args)
+    TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
+    TermInf y -> TermInf <$> (ADTEliminate y <$> (repr <$> renameTerm t) <*> mapM (\(n, z) -> (n,) . repr <$> renameTerm z) args)
+
+rename :: MonadThrow m => [Statement NameTerm] -> m [Statement Term]
+rename = mapM (mapM renameTerm)

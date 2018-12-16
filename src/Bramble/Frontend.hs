@@ -9,12 +9,13 @@ import Data.Text (Text)
 
 import Bramble.Frontend.Parser
 import Bramble.Frontend.AST
-import Bramble.Frontend.Vernacular
+import Bramble.Frontend.Expression
 import Bramble.Core.Renamer
 import Bramble.Core.AST
+import Bramble.Core.Vernacular
 
-toCore :: MonadThrow m => Text -> m Term
-toCore = parseSExp "input"
-         >=> vernacularizeExpression
-         >=> pure . compile
-         >=> rename
+toCore :: MonadThrow m => Text -> Text -> m [Statement Term]
+toCore file = parse file
+              >=> vernacularize
+              >=> pure . compile
+              >=> rename

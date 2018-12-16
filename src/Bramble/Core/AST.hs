@@ -3,19 +3,16 @@ module Bramble.Core.AST where
 import Prelude
 
 import Control.Monad (forM_, unless)
-import Control.Monad.IO.Class
 import Control.Arrow (second)
 import Control.Exception.Safe
 
 import Data.Text (Text)
 import qualified Data.Text as T
 
+import Bramble.Utility.Pretty
 import Bramble.Core.ADT
 
-prettySum :: Sum TermCheck -> Text
-prettySum (Sum ps) = T.intercalate " | " $ (\(Product cn args) -> cn <> if null args then "" else " " <> T.intercalate " " (prettyCheck <$> args)) <$> ps
-
-validateSum :: forall m. (MonadThrow m, MonadIO m) => Int -> [(Name, Value)] -> Sum TermCheck -> m ()
+validateSum :: forall m. MonadThrow m => Int -> [(Name, Value)] -> Sum TermCheck -> m ()
 validateSum i env (Sum ps) = mapM_ vp ps
   where vp :: Product TermCheck -> m ()
         vp (Product _ ts) = mapM_ (\x -> typeCheck i env x VStar) ts
@@ -27,10 +24,10 @@ data Name where
 deriving instance Show Name
 deriving instance Eq Name
 
-prettyName :: Name -> Text
-prettyName (Name n) = n
-prettyName (Quote i) = mconcat ["<quote-", T.pack $ show i, ">"]
-prettyName (Local i) = mconcat ["<local-", T.pack $ show i, ">"]
+instance Pretty Name where
+  pretty (Name n) = n
+  pretty (Quote i) = mconcat ["<quote-", T.pack $ show i, ">"]
+  pretty (Local i) = mconcat ["<local-", T.pack $ show i, ">"]
 
 data TermInf where
   Annotate :: TermCheck -> TermCheck -> TermInf
@@ -46,16 +43,16 @@ data TermInf where
 deriving instance Show TermInf
 deriving instance Eq TermInf
 
-prettyInf :: TermInf -> Text
-prettyInf (Annotate e t) = mconcat ["[", prettyCheck e, " : ", prettyCheck t, "]"]
-prettyInf Star = "Type"
-prettyInf (Pi t b) = mconcat ["Π", prettyCheck t, ".", prettyCheck b]
-prettyInf (Bound i) = T.pack $ show i
-prettyInf (Free n) = prettyName n
-prettyInf (Apply f x) = mconcat ["(", prettyInf f, " ", prettyCheck x, ")"]
-prettyInf (ADT n s) = mconcat ["{", n, " = ", prettySum s, "}"]
-prettyInf (ADTConstruct cn _ args) = "{" <> cn <> " " <> T.intercalate " " (prettyCheck <$> args) <> "}"
-prettyInf (ADTEliminate x _ hs) = "{" <> prettyInf x <> " ! " <> T.intercalate "; " ((\(cn, b) -> cn <> " -> " <> prettyCheck b) <$> hs) <> "}"
+instance Pretty TermInf where
+  pretty (Annotate e t) = mconcat ["[", pretty e, " : ", pretty t, "]"]
+  pretty Star = "Type"
+  pretty (Pi t b) = mconcat ["Π", pretty t, ".", pretty b]
+  pretty (Bound i) = T.pack $ show i
+  pretty (Free n) = pretty n
+  pretty (Apply f x) = mconcat ["(", pretty f, " ", pretty x, ")"]
+  pretty (ADT n s) = mconcat ["{", n, " = ", pretty s, "}"]
+  pretty (ADTConstruct cn _ args) = "{" <> cn <> " " <> T.intercalate " " (pretty <$> args) <> "}"
+  pretty (ADTEliminate x _ hs) = "{" <> pretty x <> " ! " <> T.intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
 
 data TermCheck where
   Inf :: TermInf -> TermCheck
@@ -63,9 +60,9 @@ data TermCheck where
 deriving instance Show TermCheck
 deriving instance Eq TermCheck
 
-prettyCheck :: TermCheck -> Text
-prettyCheck (Inf x) = prettyInf x
-prettyCheck (Lambda b) = "λ." <> prettyCheck b
+instance Pretty TermCheck where
+  pretty (Inf x) = pretty x
+  pretty (Lambda b) = "λ." <> pretty b
 
 data Neutral where
   NFree :: Name -> Neutral
@@ -142,7 +139,7 @@ quote = go 0
         boundfree i (Quote k) = Bound $ i - k - 1
         boundfree _ x = Free x
 
-typeInf :: (MonadThrow m, MonadIO m) => Int -> [(Name, Value)] -> TermInf -> m Value
+typeInf :: MonadThrow m  => Int -> [(Name, Value)] -> TermInf -> m Value
 typeInf i env (Annotate e t) = do
   typeCheck i env t VStar
   let t' = evalCheck t []
@@ -165,9 +162,9 @@ typeInf i env (Apply f x) = do
       typeCheck i env x t
       pure . b $ evalCheck x []
     _ -> throwString $ mconcat
-      [ "Illegal application of \"", T.unpack $ prettyInf f
-      , "\" (with type \"", T.unpack . prettyCheck $ quote ft
-      , "\") to \"", T.unpack $ prettyCheck x, "\""
+      [ "Illegal application of \"", T.unpack $ pretty f
+      , "\" (with type \"", T.unpack . pretty $ quote ft
+      , "\") to \"", T.unpack $ pretty x, "\""
       ]
 typeInf i env (ADT _ s) = do
   validateSum i env s
@@ -191,7 +188,7 @@ typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
                  , "\" does not have the constructor \"", T.unpack cn, "\""
                  ]
   _ -> throwString $ mconcat
-    [ "Attempt to construct non-ADT type \"", T.unpack $ prettyCheck t
+    [ "Attempt to construct non-ADT type \"", T.unpack $ pretty t
     , "\" using constructor \"", T.unpack cn, "\""
     ]
 typeInf i env (ADTEliminate x t hs) = do
@@ -217,27 +214,30 @@ typeInf i env (ADTEliminate x t hs) = do
            , " but received ", show $ length hs
            ]
     _ -> throwString $ mconcat
-         [ "Attempt to eliminate term \"", T.unpack $ prettyInf x
-         , "\" of non-ADT type \"", T.unpack . prettyCheck $ quote xt, "\""
+         [ "Attempt to eliminate term \"", T.unpack $ pretty x
+         , "\" of non-ADT type \"", T.unpack . pretty $ quote xt, "\""
          ]
-typeCheck :: (MonadThrow m, MonadIO m) => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
+typeCheck :: MonadThrow m => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
 typeCheck i env (Inf x) v = do
   v' <- typeInf i env x
   unless (quote v == quote v') . throwString $ mconcat
-    [ "Type mismatch: expected \"", T.unpack . prettyCheck $ quote v
-    , "\" but found \"", T.unpack $ prettyInf x
-    , "\" with type \"", T.unpack . prettyCheck $ quote v', "\""
+    [ "Type mismatch: expected \"", T.unpack . pretty $ quote v
+    , "\" but found \"", T.unpack $ pretty x
+    , "\" with type \"", T.unpack . pretty $ quote v', "\""
     ]
 typeCheck i env (Lambda b) (VPi t b') =
   typeCheck (i + 1) ((Local i, t):env) (substCheck 0 (Free (Local i)) b) . b' . VNeutral . NFree $ Local i
 typeCheck _ _ x v = throwString $ mconcat
-  [ "Structural type mismatch: expected \"", T.unpack . prettyCheck $ quote v
-  , "\" but found \"", T.unpack $ prettyCheck x, "\""
+  [ "Structural type mismatch: expected \"", T.unpack . pretty $ quote v
+  , "\" but found \"", T.unpack $ pretty x, "\""
   ]
 
 data Term = TermInf TermInf
           | TermCheck TermCheck
           deriving (Show, Eq)
+
+instance Pretty Term where
+  pretty = pretty . repr
 
 repr :: Term -> TermCheck
 repr (TermInf x) = Inf x
@@ -247,7 +247,7 @@ eval :: Term -> Value
 eval (TermInf x) = evalInf x []
 eval (TermCheck x) = evalCheck x []
 
-check :: (MonadThrow m, MonadIO m) => [(Name, Value)] -> Term -> Value -> m ()
+check :: MonadThrow m => [(Name, Value)] -> Term -> Value -> m ()
 check env x = typeCheck 0 env $ repr x
 
 testId :: TermCheck

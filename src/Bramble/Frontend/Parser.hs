@@ -1,5 +1,5 @@
 module Bramble.Frontend.Parser
-  ( parseSExp
+  ( Bramble.Frontend.Parser.parse
   ) where
 
 import Control.Applicative (pure, (*>), (<*))
@@ -33,7 +33,7 @@ sexp = many spaceChar *>
         special :: String
         special = "()"
 
-parseSExp :: MonadThrow m => Text -> Text -> m SExp
-parseSExp file d = case parse sexp (unpack file) d of
+parse :: MonadThrow m => Text -> Text -> m [SExp]
+parse file d = case Text.Megaparsec.parse (some sexp) (unpack file) d of
   Left err -> throwString $ mconcat ["Parse error: ", parseErrorPretty err]
   Right x -> pure x
