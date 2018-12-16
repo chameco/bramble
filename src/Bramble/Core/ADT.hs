@@ -6,9 +6,9 @@ import Data.Kind
 import Data.Text (Text)
 
 data Product ty = Product Text [ty]
-             deriving (Show, Eq)
+             deriving (Show, Eq, Functor, Foldable, Traversable)
 newtype Sum ty = Sum [Product ty]
-            deriving (Show, Eq)
+            deriving (Show, Eq, Functor, Foldable, Traversable)
 
 lookupProduct :: forall (ty :: Type). Text -> Sum ty -> Maybe (Product ty)
 lookupProduct n (Sum ps) = go ps

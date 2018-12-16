@@ -239,13 +239,16 @@ data Term = TermInf TermInf
           | TermCheck TermCheck
           deriving (Show, Eq)
 
+repr :: Term -> TermCheck
+repr (TermInf x) = Inf x
+repr (TermCheck x) = x
+
 eval :: Term -> Value
 eval (TermInf x) = evalInf x []
 eval (TermCheck x) = evalCheck x []
 
 check :: (MonadThrow m, MonadIO m) => [(Name, Value)] -> Term -> Value -> m ()
-check env (TermInf x) = typeCheck 0 env (Inf x)
-check env (TermCheck x) = typeCheck 0 env x
+check env x = typeCheck 0 env $ repr x
 
 testId :: TermCheck
 testId = Lambda $ Lambda $ Inf $ Annotate (Inf $ Bound 0) (Inf $ Bound 1)
