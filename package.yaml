@@ -18,8 +18,10 @@ ghc-options:
 dependencies:
 - base
 - text
-- text-show
 - bytestring
+- safe-exceptions
+- megaparsec
+- mtl
 
 default-extensions:
 - NoImplicitPrelude

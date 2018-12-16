@@ -1,32 +1,23 @@
 module Bramble.Core.AST where
 
--- TODO for this evening:
--- improve error messages, use to debug ADTs
--- parameteric polymorphism for ADTs
--- parser
-
 import Prelude
 
 import Control.Monad (forM_, unless)
+import Control.Monad.IO.Class
 import Control.Arrow (second)
+import Control.Exception.Safe
 
 import Data.Text (Text)
+import qualified Data.Text as T
 
-data Product = Product Text [TermCheck]
-             deriving (Show, Eq)
-newtype Sum = Sum [Product]
-            deriving (Show, Eq)
+import Bramble.Core.ADT
 
-lookupProduct :: Text -> Sum -> Maybe Product
-lookupProduct n (Sum ps) = go ps
-  where go :: [Product] -> Maybe Product
-        go [] = Nothing
-        go (p@(Product n' _):r) | n == n' = Just p
-                                | otherwise = go r
+prettySum :: Sum TermCheck -> Text
+prettySum (Sum ps) = T.intercalate " | " $ (\(Product cn args) -> cn <> if null args then "" else " " <> T.intercalate " " (prettyCheck <$> args)) <$> ps
 
-validateSum :: Int -> [(Name, Value)] -> Sum -> Either Text ()
+validateSum :: forall m. (MonadThrow m, MonadIO m) => Int -> [(Name, Value)] -> Sum TermCheck -> m ()
 validateSum i env (Sum ps) = mapM_ vp ps
-  where vp :: Product -> Either Text ()
+  where vp :: Product TermCheck -> m ()
         vp (Product _ ts) = mapM_ (\x -> typeCheck i env x VStar) ts
 
 data Name where
@@ -36,6 +27,11 @@ data Name where
 deriving instance Show Name
 deriving instance Eq Name
 
+prettyName :: Name -> Text
+prettyName (Name n) = n
+prettyName (Quote i) = mconcat ["<quote-", T.pack $ show i, ">"]
+prettyName (Local i) = mconcat ["<local-", T.pack $ show i, ">"]
+
 data TermInf where
   Annotate :: TermCheck -> TermCheck -> TermInf
   Star :: TermInf
@@ -44,21 +40,32 @@ data TermInf where
   Free :: Name -> TermInf
   Apply :: TermInf -> TermCheck -> TermInf
 
-  Bool :: TermInf
-  BoolTrue :: TermInf
-  BoolFalse :: TermInf
-
-  ADT :: Text -> Sum -> TermInf
+  ADT :: Text -> Sum TermCheck -> TermInf
   ADTConstruct :: Text -> TermCheck -> [TermCheck] -> TermInf
   ADTEliminate :: TermInf -> TermCheck -> [(Text, TermCheck)] -> TermInf
 deriving instance Show TermInf
 deriving instance Eq TermInf
+
+prettyInf :: TermInf -> Text
+prettyInf (Annotate e t) = mconcat ["[", prettyCheck e, " : ", prettyCheck t, "]"]
+prettyInf Star = "Type"
+prettyInf (Pi t b) = mconcat ["Π", prettyCheck t, ".", prettyCheck b]
+prettyInf (Bound i) = T.pack $ show i
+prettyInf (Free n) = prettyName n
+prettyInf (Apply f x) = mconcat ["(", prettyInf f, " ", prettyCheck x, ")"]
+prettyInf (ADT n s) = mconcat ["{", n, " = ", prettySum s, "}"]
+prettyInf (ADTConstruct cn _ args) = "{" <> cn <> " " <> T.intercalate " " (prettyCheck <$> args) <> "}"
+prettyInf (ADTEliminate x _ hs) = "{" <> prettyInf x <> " ! " <> T.intercalate "; " ((\(cn, b) -> cn <> " -> " <> prettyCheck b) <$> hs) <> "}"
 
 data TermCheck where
   Inf :: TermInf -> TermCheck
   Lambda :: TermCheck -> TermCheck
 deriving instance Show TermCheck
 deriving instance Eq TermCheck
+
+prettyCheck :: TermCheck -> Text
+prettyCheck (Inf x) = prettyInf x
+prettyCheck (Lambda b) = "λ." <> prettyCheck b
 
 data Neutral where
   NFree :: Name -> Neutral
@@ -71,11 +78,7 @@ data Value where
   VPi :: Value -> (Value -> Value) -> Value
   VNeutral :: Neutral -> Value
 
-  VBool :: Value
-  VBoolTrue :: Value
-  VBoolFalse :: Value
-
-  VADT :: Text -> Sum -> Value
+  VADT :: Text -> Sum TermCheck -> Value
   VADTConstruct :: Text -> Value -> [Value] -> Value
 
 vapp :: Value -> Value -> Value
@@ -90,9 +93,6 @@ evalInf (Pi t b) env = VPi (evalCheck t env) $ \x -> evalCheck b (x:env)
 evalInf (Free n) _ = VNeutral (NFree n)
 evalInf (Bound i) env = env !! i
 evalInf (Apply f x) env = vapp (evalInf f env) $ evalCheck x env
-evalInf Bool _ = VBool
-evalInf BoolTrue _ = VBoolTrue
-evalInf BoolFalse _ = VBoolFalse
 evalInf (ADT n s) _ = VADT n s
 evalInf (ADTConstruct cn t args) env = VADTConstruct cn (evalCheck t env) $ flip evalCheck env <$> args
 evalInf (ADTEliminate x t hs) env = case (x', t') of
@@ -132,9 +132,6 @@ quote = go 0
         go _ VStar = Inf Star
         go i (VPi v f) = Inf . Pi (go i v) . go (i + 1) . f . VNeutral . NFree $ Quote i
         go i (VNeutral n) = Inf $ nq i n
-        go _ VBool = Inf Bool
-        go _ VBoolTrue = Inf BoolTrue
-        go _ VBoolFalse = Inf BoolFalse
         go _ (VADT n s) = Inf $ ADT n s
         go i (VADTConstruct n t args) = Inf . ADTConstruct n (go i t) $ go i <$> args
         nq :: Int -> Neutral -> TermInf
@@ -145,7 +142,7 @@ quote = go 0
         boundfree i (Quote k) = Bound $ i - k - 1
         boundfree _ x = Free x
 
-typeInf :: Int -> [(Name, Value)] -> TermInf -> Either Text Value
+typeInf :: (MonadThrow m, MonadIO m) => Int -> [(Name, Value)] -> TermInf -> m Value
 typeInf i env (Annotate e t) = do
   typeCheck i env t VStar
   let t' = evalCheck t []
@@ -157,25 +154,26 @@ typeInf i env (Pi t b) = do
   let t' = evalCheck t []
   typeCheck (i + 1) ((Local i, t'):env) (substCheck 0 (Free $ Local i) b) VStar
   pure VStar
-typeInf _ _ Bound{} = Left "unbound variable"
+typeInf _ _ (Bound i) = throwString $ mconcat ["Unbound variable with index \"", show i, "\""]
 typeInf _ env (Free n) = case lookup n env of
   Just t -> pure t
-  Nothing -> Left "unknown identifier"
+  Nothing -> throwString $ mconcat ["Unknown identifier \"", show n, "\""]
 typeInf i env (Apply f x) = do
   ft <- typeInf i env f
   case ft of
     VPi t b -> do
       typeCheck i env x t
       pure . b $ evalCheck x []
-    _ -> Left "illegal application"
-typeInf _ _ Bool = pure VStar
-typeInf _ _ BoolTrue = pure VBool
-typeInf _ _ BoolFalse = pure VBool
+    _ -> throwString $ mconcat
+      [ "Illegal application of \"", T.unpack $ prettyInf f
+      , "\" (with type \"", T.unpack . prettyCheck $ quote ft
+      , "\") to \"", T.unpack $ prettyCheck x, "\""
+      ]
 typeInf i env (ADT _ s) = do
   validateSum i env s
   pure VStar
 typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
-  t'@(VADT _ s) ->
+  t'@(VADT n s) ->
     case lookupProduct cn s of
       Just (Product _ fs) ->
         if length args == length fs
@@ -183,32 +181,59 @@ typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
                   let ft' = evalCheck ft []
                   typeCheck i env a ft'
                 pure t'
-        else Left "constructor arity mismatch"
-      Nothing -> Left "ADT does not have constructor"
-  _ -> Left "attempt to construct non-ADT type"
+        else throwString $ mconcat
+             [ "Constructor arity mismatch for \"", T.unpack cn
+             , "\": expected ", show $ length fs
+             , " but received ", show $ length args
+             ]
+      Nothing -> throwString $ mconcat
+                 [ "The ADT \"", T.unpack n
+                 , "\" does not have the constructor \"", T.unpack cn, "\""
+                 ]
+  _ -> throwString $ mconcat
+    [ "Attempt to construct non-ADT type \"", T.unpack $ prettyCheck t
+    , "\" using constructor \"", T.unpack cn, "\""
+    ]
 typeInf i env (ADTEliminate x t hs) = do
   xt <- typeInf i env x
   let t' = evalCheck t []
   typeCheck i env t VStar
   case xt of
-    VADT _ s@(Sum ps) ->
+    VADT n s@(Sum ps) ->
       if length ps == length hs
       then do
-        forM_ hs $ \(cn, h) -> do
-          typeCheck i env h t'
+        forM_ hs $ \(cn, h) ->
           case lookupProduct cn s of
-            Just (Product _ p) -> typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t' $ flip evalCheck [] <$> p
-            _ -> Left "ADT does not have constructor"
+            Just (Product _ p) ->
+              typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t' $ flip evalCheck [] <$> p
+            _ -> throwString $ mconcat
+              [ "The ADT \"", T.unpack n
+              , "\" does not have the constructor \"", T.unpack cn, "\""
+              ]
         pure . VPi xt $ const t'
-      else Left "missing cases"
-    _ -> Left "attempt to eliminate non-ADT type"
-typeCheck :: Int -> [(Name, Value)] -> TermCheck -> Value -> Either Text ()
+      else throwString $ mconcat
+           [ "Not enough cases to eliminate \"", T.unpack n
+           , "\": expected ", show $ length ps
+           , " but received ", show $ length hs
+           ]
+    _ -> throwString $ mconcat
+         [ "Attempt to eliminate term \"", T.unpack $ prettyInf x
+         , "\" of non-ADT type \"", T.unpack . prettyCheck $ quote xt, "\""
+         ]
+typeCheck :: (MonadThrow m, MonadIO m) => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
 typeCheck i env (Inf x) v = do
   v' <- typeInf i env x
-  unless (quote v == quote v') $ Left "type mismatch"
+  unless (quote v == quote v') . throwString $ mconcat
+    [ "Type mismatch: expected \"", T.unpack . prettyCheck $ quote v
+    , "\" but found \"", T.unpack $ prettyInf x
+    , "\" with type \"", T.unpack . prettyCheck $ quote v', "\""
+    ]
 typeCheck i env (Lambda b) (VPi t b') =
   typeCheck (i + 1) ((Local i, t):env) (substCheck 0 (Free (Local i)) b) . b' . VNeutral . NFree $ Local i
-typeCheck _ _ _ _ = Left "type mismatch"
+typeCheck _ _ x v = throwString $ mconcat
+  [ "Structural type mismatch: expected \"", T.unpack . prettyCheck $ quote v
+  , "\" but found \"", T.unpack $ prettyCheck x, "\""
+  ]
 
 data Term = TermInf TermInf
           | TermCheck TermCheck
@@ -218,7 +243,7 @@ eval :: Term -> Value
 eval (TermInf x) = evalInf x []
 eval (TermCheck x) = evalCheck x []
 
-check :: [(Name, Value)] -> Term -> Value -> Either Text ()
+check :: (MonadThrow m, MonadIO m) => [(Name, Value)] -> Term -> Value -> m ()
 check env (TermInf x) = typeCheck 0 env (Inf x)
 check env (TermCheck x) = typeCheck 0 env x
 
@@ -226,10 +251,10 @@ testId :: TermCheck
 testId = Lambda $ Lambda $ Inf $ Annotate (Inf $ Bound 0) (Inf $ Bound 1)
 
 testBool :: TermInf
-testBool = ADT "Bool" $ Sum [Product "True" [Inf Star], Product "False" []]
+testBool = ADT "Bool" $ Sum [Product "True" [], Product "False" []]
 
 testFalse :: TermInf
 testFalse = ADTConstruct "False" (Inf testBool) []
 
 testElim :: TermInf
-testElim = ADTEliminate testFalse (Inf Star) [("False", Inf testBool), ("True", Lambda $ Inf $ Bound 0)]
+testElim = ADTEliminate testFalse (Inf Star) [("False", Inf testBool), ("True", Inf Star)]
