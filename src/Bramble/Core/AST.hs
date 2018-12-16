@@ -6,7 +6,7 @@ import GHC.Err (error)
 import Control.Applicative (pure)
 import Control.Monad (mapM_, forM_, unless)
 import Control.Arrow (second)
-import Control.Exception.Safe
+import Control.Exception.Safe (MonadThrow, throw)
 
 import Data.Monoid (mconcat, (<>))
 import Data.Functor (fmap, (<$>))
@@ -17,11 +17,12 @@ import Data.Maybe (Maybe(..))
 import Data.List (length, zip, lookup, (!!))
 import Data.Bool (otherwise)
 import Data.Int (Int)
-import Data.Text (Text, pack, unpack, intercalate)
+import Data.Text (Text, pack, unwords, intercalate)
 
 import Text.Show (Show, show)
 
 import Bramble.Utility.Pretty
+import Bramble.Utility.Error
 import Bramble.Core.ADT
 
 validateSum :: forall m. MonadThrow m => Int -> [(Name, Value)] -> Sum TermCheck -> m ()
@@ -63,7 +64,7 @@ instance Pretty TermInf where
   pretty (Free n) = pretty n
   pretty (Apply f x) = mconcat ["(", pretty f, " ", pretty x, ")"]
   pretty (ADT n s) = mconcat ["{", n, " = ", pretty s, "}"]
-  pretty (ADTConstruct cn _ args) = "{" <> cn <> " " <> intercalate " " (pretty <$> args) <> "}"
+  pretty (ADTConstruct cn _ args) = "{" <> cn <> " " <> unwords (pretty <$> args) <> "}"
   pretty (ADTEliminate x _ hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
 
 data TermCheck where
@@ -79,7 +80,7 @@ instance Pretty TermCheck where
 data Neutral where
   NFree :: Name -> Neutral
   NApply :: Neutral -> Value -> Neutral
-  NADTEliminate :: Neutral -> Neutral -> [(Text, Value)] -> Neutral
+  NADTEliminate :: Neutral -> Value -> [(Text, Value)] -> Neutral
 
 data Value where
   VLambda :: (Value -> Value) -> Value
@@ -87,13 +88,23 @@ data Value where
   VPi :: Value -> (Value -> Value) -> Value
   VNeutral :: Neutral -> Value
 
-  VADT :: Text -> Sum TermCheck -> Value
+  VADT :: Text -> Sum Value -> Value
   VADTConstruct :: Text -> Value -> [Value] -> Value
 
-vapp :: Value -> Value -> Value
-vapp (VLambda b) v = b v
-vapp (VNeutral n) v = VNeutral $ NApply n v
-vapp _ _ = error "malformed expression"
+vApply :: Value -> Value -> Value
+vApply (VLambda b) v = b v
+vApply (VNeutral n) v = VNeutral $ NApply n v
+vApply _ _ = error "malformed expression"
+
+vADTEliminate :: Value -> Value -> [(Text, Value)] -> Value
+vADTEliminate (VADTConstruct cn (VADT _ (Sum ps)) args) _ hs =
+  if length ps == length hs
+  then case lookup cn hs of
+    Just body -> foldr (flip vApply) body args
+    _ -> error "malformed expression"
+  else error "malformed expression"
+vADTEliminate (VNeutral n) t hs = VNeutral $ NADTEliminate n t hs
+vADTEliminate _ _ _ = error "malformed expression"
 
 evalInf :: TermInf -> [Value] -> Value
 evalInf (Annotate e _) env = evalCheck e env
@@ -101,20 +112,10 @@ evalInf Star _ = VStar
 evalInf (Pi t b) env = VPi (evalCheck t env) $ \x -> evalCheck b (x:env)
 evalInf (Free n) _ = VNeutral (NFree n)
 evalInf (Bound i) env = env !! i
-evalInf (Apply f x) env = vapp (evalInf f env) $ evalCheck x env
-evalInf (ADT n s) _ = VADT n s
+evalInf (Apply f x) env = vApply (evalInf f env) $ evalCheck x env
+evalInf (ADT n s) env = VADT n (flip evalCheck env <$> s)
 evalInf (ADTConstruct cn t args) env = VADTConstruct cn (evalCheck t env) $ flip evalCheck env <$> args
-evalInf (ADTEliminate x t hs) env = case (x', t') of
-  (VADTConstruct cn (VADT _ (Sum ps)) args, _) ->
-    if length ps == length hs
-    then case lookup cn hs of
-      Just body -> foldr (flip vapp) (evalCheck body env) args
-      _ -> error "malformed expression"
-    else error "malformed expression"
-  (VNeutral nx, VNeutral nt) -> VNeutral $ NADTEliminate nx nt (second (`evalCheck` env) <$> hs)
-  _ -> error "malformed expression"
-  where x' = evalInf x env
-        t' = evalCheck t env
+evalInf (ADTEliminate x t hs) env = vADTEliminate (evalInf x env) (evalCheck t env) $ second (`evalCheck` env) <$> hs
 
 evalCheck :: TermCheck -> [Value] -> Value
 evalCheck (Inf x) env = evalInf x env
@@ -141,12 +142,12 @@ quote = go 0
         go _ VStar = Inf Star
         go i (VPi v f) = Inf . Pi (go i v) . go (i + 1) . f . VNeutral . NFree $ Quote i
         go i (VNeutral n) = Inf $ nq i n
-        go _ (VADT n s) = Inf $ ADT n s
+        go i (VADT n s) = Inf $ ADT n $ go i <$> s
         go i (VADTConstruct n t args) = Inf . ADTConstruct n (go i t) $ go i <$> args
         nq :: Int -> Neutral -> TermInf
         nq i (NFree x) = boundfree i x
         nq i (NApply n v) = Apply (nq i n) $ go i v
-        nq i (NADTEliminate n t hs) = ADTEliminate (nq i n) (Inf $ nq i t) $ second (go i) <$> hs
+        nq i (NADTEliminate n t hs) = ADTEliminate (nq i n) (go i t) $ second (go i) <$> hs
         boundfree :: Int -> Name -> TermInf
         boundfree i (Quote k) = Bound $ i - k - 1
         boundfree _ x = Free x
@@ -163,21 +164,17 @@ typeInf i env (Pi t b) = do
   let t' = evalCheck t []
   typeCheck (i + 1) ((Local i, t'):env) (substCheck 0 (Free $ Local i) b) VStar
   pure VStar
-typeInf _ _ (Bound i) = throwString $ mconcat ["Unbound variable with index \"", show i, "\""]
+typeInf _ _ (Bound i) = throw $ UnboundIndex i
 typeInf _ env (Free n) = case lookup n env of
   Just t -> pure t
-  Nothing -> throwString $ mconcat ["Unknown identifier \"", show n, "\""]
+  Nothing -> throw . UnknownIdentifier $ pretty n
 typeInf i env (Apply f x) = do
   ft <- typeInf i env f
   case ft of
     VPi t b -> do
       typeCheck i env x t
       pure . b $ evalCheck x []
-    _ -> throwString . unpack $ mconcat
-      [ "Illegal application of \"", pretty f
-      , "\" (with type \"", pretty $ quote ft
-      , "\") to \"", pretty x, "\""
-      ]
+    _ -> throw . IllegalApplication (pretty f) (pretty $ quote ft) $ pretty x
 typeInf i env (ADT _ s) = do
   validateSum i env s
   pure VStar
@@ -186,23 +183,11 @@ typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
     case lookupProduct cn s of
       Just (Product _ fs) ->
         if length args == length fs
-        then do forM_ (zip fs args) $ \(ft, a) -> do
-                  let ft' = evalCheck ft []
-                  typeCheck i env a ft'
+        then do forM_ (zip fs args) $ \(ft, a) -> typeCheck i env a ft
                 pure t'
-        else throwString . unpack $ mconcat
-             [ "Constructor arity mismatch for \"", cn
-             , "\": expected ", pack . show $ length fs
-             , " but received ", pack . show $ length args
-             ]
-      Nothing -> throwString . unpack $ mconcat
-                 [ "The ADT \"", n
-                 , "\" does not have the constructor \"", cn, "\""
-                 ]
-  _ -> throwString . unpack $ mconcat
-    [ "Attempt to construct non-ADT type \"", pretty t
-    , "\" using constructor \"", cn, "\""
-    ]
+        else throw . ConstructorArityMismatch cn (length fs) $ length args
+      Nothing -> throw $ InvalidConstructor n cn
+  _ -> throw $ ConstructNonADT (pretty t) cn
 typeInf i env (ADTEliminate x t hs) = do
   xt <- typeInf i env x
   let t' = evalCheck t []
@@ -214,35 +199,18 @@ typeInf i env (ADTEliminate x t hs) = do
         forM_ hs $ \(cn, h) ->
           case lookupProduct cn s of
             Just (Product _ p) ->
-              typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t' $ flip evalCheck [] <$> p
-            _ -> throwString . unpack $ mconcat
-              [ "The ADT \"", n
-              , "\" does not have the constructor \"", cn, "\""
-              ]
+              typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t' p
+            _ -> throw $ InvalidConstructor n cn
         pure . VPi xt $ const t'
-      else throwString . unpack $ mconcat
-           [ "Not enough cases to eliminate \"", n
-           , "\": expected ", pack . show $ length ps
-           , " but received ", pack . show $ length hs
-           ]
-    _ -> throwString . unpack $ mconcat
-         [ "Attempt to eliminate term \"", pretty x
-         , "\" of non-ADT type \"", pretty $ quote xt, "\""
-         ]
+      else throw . MissingCases n (length ps) $ length hs
+    _ -> throw . EliminateNonADT (pretty x) . pretty $ quote xt
 typeCheck :: MonadThrow m => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
 typeCheck i env (Inf x) v = do
   v' <- typeInf i env x
-  unless (quote v == quote v') . throwString . unpack $ mconcat
-    [ "Type mismatch: expected \"", pretty $ quote v
-    , "\" but found \"", pretty x
-    , "\" with type \"", pretty $ quote v', "\""
-    ]
+  unless (quote v == quote v') . throw . TypeMismatch (pretty $ quote v) (pretty x) . pretty $ quote v'
 typeCheck i env (Lambda b) (VPi t b') =
   typeCheck (i + 1) ((Local i, t):env) (substCheck 0 (Free (Local i)) b) . b' . VNeutral . NFree $ Local i
-typeCheck _ _ x v = throwString . unpack $ mconcat
-  [ "Structural type mismatch: expected \"", pretty $ quote v
-  , "\" but found \"", pretty x, "\""
-  ]
+typeCheck _ _ x v = throw . StructuralTypeMismatch (pretty $ quote v) $ pretty x
 
 data Term = TermInf TermInf
           | TermCheck TermCheck
@@ -255,12 +223,16 @@ repr :: Term -> TermCheck
 repr (TermInf x) = Inf x
 repr (TermCheck x) = x
 
-eval :: Term -> Value
-eval (TermInf x) = evalInf x []
-eval (TermCheck x) = evalCheck x []
+evalTerm :: Term -> Value
+evalTerm (TermInf x) = evalInf x []
+evalTerm (TermCheck x) = evalCheck x []
 
-check :: MonadThrow m => [(Name, Value)] -> Term -> Value -> m ()
-check env x = typeCheck 0 env $ repr x
+typeOfTerm :: MonadThrow m => [(Name, Value)] -> Term -> m Value
+typeOfTerm env (TermInf x) = typeInf 0 env x
+typeOfTerm _ (TermCheck x) = throw . CannotInferType $ pretty x
+
+checkTerm :: MonadThrow m => [(Name, Value)] -> Term -> Value -> m ()
+checkTerm env x = typeCheck 0 env $ repr x
 
 testId :: TermCheck
 testId = Lambda $ Lambda $ Inf $ Annotate (Inf $ Bound 0) (Inf $ Bound 1)

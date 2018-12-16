@@ -14,8 +14,8 @@ import Bramble.Core.Renamer
 import Bramble.Core.AST
 import Bramble.Core.Vernacular
 
-toCore :: MonadThrow m => Text -> Text -> m [Statement Term]
-toCore file = parse file
-              >=> vernacularize
-              >=> pure . compile
-              >=> rename
+frontend :: MonadThrow m => Text -> Text -> m [Statement Term]
+frontend file = parse file
+                >=> vernacularize
+                >=> pure . compile
+                >=> rename

@@ -3,10 +3,9 @@ module Bramble.Frontend.Parser
   ) where
 
 import Control.Applicative (pure, (*>), (<*))
-import Control.Exception.Safe (MonadThrow, throwString)
+import Control.Exception.Safe (MonadThrow, throw)
 
 import Data.Void (Void)
-import Data.Monoid (mconcat)
 import Data.Function (($), (.))
 import Data.Functor ((<$>))
 import Data.Either (Either(..))
@@ -19,6 +18,7 @@ import Data.Text (Text, pack, unpack)
 import Text.Megaparsec (Parsec, parse, parseErrorPretty, some, many, (<|>))
 import Text.Megaparsec.Char (satisfy, char, spaceChar)
 
+import Bramble.Utility.Error
 import Bramble.Frontend.AST
 
 type Parser = Parsec Void Text
@@ -35,5 +35,5 @@ sexp = many spaceChar *>
 
 parse :: MonadThrow m => Text -> Text -> m [SExp]
 parse file d = case Text.Megaparsec.parse (some sexp) (unpack file) d of
-  Left err -> throwString $ mconcat ["Parse error: ", parseErrorPretty err]
+  Left err -> throw . ParseError . pack $ parseErrorPretty err
   Right x -> pure x

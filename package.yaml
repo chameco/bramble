@@ -85,3 +85,12 @@ default-extensions:
 
 library:
   source-dirs: src
+
+executables:
+  bramble:
+    main: Main.hs
+    source-dirs: app
+    dependencies:
+    - bramble
+    - optparse-applicative
+    - haskeline
