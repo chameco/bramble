@@ -23,7 +23,7 @@ newtype Sum ty = Sum [Product ty]
             deriving (Show, Eq, Functor, Foldable, Traversable)
 
 instance Pretty a => Pretty (Sum a) where
-  pretty (Sum ps) = intercalate " | " $ (\(Product cn args) -> cn <> if null args then "" else " " <> unwords (pretty <$> args)) <$> ps
+  pretty (Sum ps) = intercalate " | " $ (\(Product cn args) -> cn <> (if null args then "" else " ") <> unwords (pretty <$> args)) <$> ps
 
 lookupProduct :: forall (ty :: Type). Text -> Sum ty -> Maybe (Product ty)
 lookupProduct n (Sum ps) = go ps

@@ -14,7 +14,7 @@ import Data.Foldable (foldr)
 import Data.Eq (Eq, (==))
 import Data.Function (flip, const, ($), (.))
 import Data.Maybe (Maybe(..))
-import Data.List (length, zip, lookup, (!!))
+import Data.List (null, length, zip, lookup, (!!))
 import Data.Bool (otherwise)
 import Data.Int (Int)
 import Data.Text (Text, pack, unwords, intercalate)
@@ -64,7 +64,7 @@ instance Pretty TermInf where
   pretty (Free n) = pretty n
   pretty (Apply f x) = mconcat ["(", pretty f, " ", pretty x, ")"]
   pretty (ADT n s) = mconcat ["{", n, " = ", pretty s, "}"]
-  pretty (ADTConstruct cn _ args) = "{" <> cn <> " " <> unwords (pretty <$> args) <> "}"
+  pretty (ADTConstruct cn _ args) = "{" <> cn <> (if null args then "" else " ") <> unwords (pretty <$> args) <> "}"
   pretty (ADTEliminate x _ hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
 
 data TermCheck where

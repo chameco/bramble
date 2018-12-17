@@ -1,6 +1,6 @@
 module Bramble.Backend.Interpreter where
 
-import GHC.Err (error)
+import GHC.Num ((-))
 
 import Control.Applicative (pure, (*>))
 import Control.Arrow (second)
@@ -8,15 +8,20 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception.Safe (MonadThrow)
 
 import Data.Kind (Type)
+import Data.Monoid ((<>))
 import Data.Functor (fmap, void, (<$>), ($>))
 import Data.Foldable (foldlM)
 import Data.Function (($), (.))
 import Data.Eq ((==))
+import Data.List (length)
 import Data.Bool (otherwise)
+import Data.Int (Int)
+import Data.Text (Text)
 import Data.Text.IO (putStrLn)
 
 import Bramble.Utility.Pretty
 import Bramble.Core.AST
+import Bramble.Core.ADT
 import Bramble.Core.Vernacular
 
 substNeutral :: Name -> Value -> Neutral -> Value
@@ -34,6 +39,27 @@ substValue n x (VNeutral m) = substNeutral n x m
 substValue n x (VADT n' s) = VADT n' $ substValue n x <$> s
 substValue n x (VADTConstruct cn t args) = VADTConstruct cn (substValue n x t) $ substValue n x <$> args
 
+curryConstructor :: Int -> Text -> Value -> [Value] -> Value
+curryConstructor 0 cn t args = VADTConstruct cn t args
+curryConstructor i cn t args = VLambda $ \x -> curryConstructor (i - 1) cn t (x:args)
+
+curryConstructorType :: [Value] -> Value -> Value
+curryConstructorType [] t = t
+curryConstructorType (t:ts) t' = VPi t $ \_ -> curryConstructorType ts t'
+
+buildADT :: Text -> Sum Value -> [(Name, Value, Value)]
+buildADT n s = (Name n, VStar, t):buildSum s
+  where t = VADT n s
+        buildSum :: Sum Value -> [(Name, Value, Value)]
+        buildSum (Sum ps) = buildProduct <$> ps
+        buildProduct :: Product Value -> (Name, Value, Value)
+        buildProduct (Product cn ts) = (Name cn, curryConstructorType ts t, curryConstructor (length ts) cn t [])
+
+terms :: [(Name, Value, Value)] -> [(Name, Value)]
+terms = fmap (\(n, _, x) -> (n, x))
+types :: [(Name, Value, Value)] -> [(Name, Value)]
+types = fmap (\(n, t, _) -> (n, t))
+
 check :: forall (m :: Type -> Type). MonadThrow m => [Statement Term] -> m ()
 check = void . foldlM process []
   where process :: [(Name, Value)] -> Statement Term -> m [(Name, Value)]
@@ -41,7 +67,7 @@ check = void . foldlM process []
           where t' = evalTerm t
         process env (Debug _) = pure env
         process env (Check _) = pure env
-        process _ _ = error "unimplemented"
+        process env (Data n s) = pure $ types (buildADT n (evalTerm <$> s)) <> env
 
 interpret :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [(Name, Value, Value)] -> [Statement Term] -> m [(Name, Value, Value)]
 interpret e p = check p *> foldlM process e p
@@ -54,11 +80,7 @@ interpret e p = check p *> foldlM process e p
         process env (Check x) = do
           t <- typeOfTerm (types env) x
           (liftIO . putStrLn . pretty $ quote t) $> env
-        process _ _ = error "unimplemented"
+        process env (Data n s) = pure $ buildADT n (evalTerm <$> s) <> env
         substAll :: [(Name, Value)] -> Value -> Value
         substAll [] x = x
         substAll ((n, v):env) x = substAll env $ substValue n v x
-        terms :: [(Name, Value, Value)] -> [(Name, Value)]
-        terms = fmap (\(n, _, x) -> (n, x))
-        types :: [(Name, Value, Value)] -> [(Name, Value)]
-        types = fmap (\(n, t, _) -> (n, t))
