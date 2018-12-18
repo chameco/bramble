@@ -32,6 +32,7 @@ validateSum i env (Sum ps) = mapM_ vp ps
 
 data Name where
   Name :: Text -> Name
+  Self :: Name
   Quote :: Int -> Name
   Local :: Int -> Name
 deriving instance Show Name
@@ -39,6 +40,7 @@ deriving instance Eq Name
 
 instance Pretty Name where
   pretty (Name n) = n
+  pretty Self = "<self>"
   pretty (Quote i) = mconcat ["<quote-", pack $ show i, ">"]
   pretty (Local i) = mconcat ["<local-", pack $ show i, ">"]
 

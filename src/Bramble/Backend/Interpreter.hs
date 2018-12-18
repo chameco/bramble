@@ -39,6 +39,10 @@ substValue n x (VNeutral m) = substNeutral n x m
 substValue n x (VADT n' s) = VADT n' $ substValue n x <$> s
 substValue n x (VADTConstruct cn t args) = VADTConstruct cn (substValue n x t) $ substValue n x <$> args
 
+substAll :: [(Name, Value)] -> Value -> Value
+substAll [] x = x
+substAll ((n, v):env) x = substAll env $ substValue n v x
+
 curryConstructor :: Int -> Text -> Value -> [Value] -> Value
 curryConstructor 0 cn t args = VADTConstruct cn t args
 curryConstructor i cn t args = VLambda $ \x -> curryConstructor (i - 1) cn t (x:args)
@@ -47,13 +51,19 @@ curryConstructorType :: [Value] -> Value -> Value
 curryConstructorType [] t = t
 curryConstructorType (t:ts) t' = VPi t $ \_ -> curryConstructorType ts t'
 
-buildADT :: Text -> Sum Value -> [(Name, Value, Value)]
-buildADT n s = (Name n, VStar, t):buildSum s
-  where t = VADT n s
+buildADT :: [(Name, Value, Value)] -> Text -> Sum Value -> [(Name, Value, Value)]
+buildADT env n s = buildSum (substAll (terms env') <$> s) <> env'
+  where s' = substAll (terms $ (Name n, VStar, VNeutral $ NFree Self):env) <$> s
+        t = VADT n s'
+        env' = (Name n, VStar, t):env
+        t' = substAll (terms env') t
         buildSum :: Sum Value -> [(Name, Value, Value)]
         buildSum (Sum ps) = buildProduct <$> ps
         buildProduct :: Product Value -> (Name, Value, Value)
-        buildProduct (Product cn ts) = (Name cn, curryConstructorType ts t, curryConstructor (length ts) cn t [])
+        buildProduct (Product cn ts) = ( Name cn
+                                       , curryConstructorType ts t'
+                                       , curryConstructor (length ts) cn t' []
+                                       )
 
 terms :: [(Name, Value, Value)] -> [(Name, Value)]
 terms = fmap (\(n, _, x) -> (n, x))
@@ -62,12 +72,13 @@ types = fmap (\(n, t, _) -> (n, t))
 
 check :: forall (m :: Type -> Type). MonadThrow m => [Statement Term] -> m ()
 check = void . foldlM process []
-  where process :: [(Name, Value)] -> Statement Term -> m [(Name, Value)]
-        process env (Define n t x) = checkTerm env x t' $> (Name n, t'):env
-          where t' = evalTerm t
+  where process :: [(Name, Value, Value)] -> Statement Term -> m [(Name, Value, Value)]
+        process env (Define n t x) = checkTerm (types env) x t' $> (Name n, t', x'):env
+          where x' = substAll (terms env) $ evalTerm t
+                t' = substAll (terms env) $ evalTerm t
         process env (Debug _) = pure env
         process env (Check _) = pure env
-        process env (Data n s) = pure $ types (buildADT n (evalTerm <$> s)) <> env
+        process env (Data n s) = pure $ buildADT env n $ evalTerm <$> s
 
 interpret :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [(Name, Value, Value)] -> [Statement Term] -> m [(Name, Value, Value)]
 interpret e p = check p *> foldlM process e p
@@ -80,7 +91,4 @@ interpret e p = check p *> foldlM process e p
         process env (Check x) = do
           t <- typeOfTerm (types env) x
           (liftIO . putStrLn . pretty $ quote t) $> env
-        process env (Data n s) = pure $ buildADT n (evalTerm <$> s) <> env
-        substAll :: [(Name, Value)] -> Value -> Value
-        substAll [] x = x
-        substAll ((n, v):env) x = substAll env $ substValue n v x
+        process env (Data n s) = pure $ buildADT env n $ evalTerm <$> s
