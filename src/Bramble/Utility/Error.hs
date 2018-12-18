@@ -54,12 +54,12 @@ instance Exception TypeError where
     , "\" of non-ADT type \"", t, "\""
     ]
   displayException (TypeMismatch t x t') = unpack $ mconcat
-    [ "Type mismatch: expected \"", t
+    [ "Expected \"", t
     , "\" but found \"", x
     , "\" with type \"", t', "\""
     ]
   displayException (StructuralTypeMismatch t x) = unpack $ mconcat
-    [ "Structural type mismatch: expected \"", t
+    [ "Expected \"", t
     , "\" but found \"", x, "\""
     ]
   displayException (CannotInferType x) = unpack $ mconcat ["Cannot infer type of \"", x, "\""]
