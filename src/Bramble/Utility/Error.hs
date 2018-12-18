@@ -17,6 +17,7 @@ data TypeError
   | InvalidConstructor Text Text
   | ConstructNonADT Text Text
   | MissingCases Text Int Int
+  | EmptyCase
   | EliminateNonADT Text Text
   | TypeMismatch Text Text Text
   | StructuralTypeMismatch Text Text
@@ -49,6 +50,7 @@ instance Exception TypeError where
     , "\": expected ", pack $ show i
     , " but received ", pack $ show j
     ]
+  displayException EmptyCase = "Empty case expression is disallowed"
   displayException (EliminateNonADT x t) = unpack $ mconcat
     [ "Attempt to eliminate term \"", x
     , "\" of non-ADT type \"", t, "\""
@@ -79,6 +81,7 @@ data VernacularError
   | VernacularLambdaBinderListError Text
   | VernacularPiBinderError Text
   | VernacularPiBinderListError Text
+  | VernacularCaseError Text
   deriving Show
 
 instance Exception VernacularError where
@@ -89,3 +92,4 @@ instance Exception VernacularError where
   displayException (VernacularLambdaBinderListError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a list of vernacular lambda-binders"]
   displayException (VernacularPiBinderError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular pi-binder"]
   displayException (VernacularPiBinderListError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a list of vernacular pi-binders"]
+  displayException (VernacularCaseError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular case"]

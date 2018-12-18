@@ -1,5 +1,7 @@
 module Bramble.Frontend.Expression where
 
+import Control.Arrow (second)
+
 import Data.Foldable (foldr)
 import Data.Functor (fmap, (<$>))
 import Data.Function (flip, ($))
@@ -19,6 +21,7 @@ data Expression where
   Var :: Text -> Expression
   Call :: Expression -> [Expression] -> Expression
   Fun :: [Text] -> Expression -> Expression
+  Case :: Expression -> [(Text, Expression)] -> Expression
 deriving instance Show Expression
 deriving instance Eq Expression
 
@@ -32,6 +35,7 @@ compileExpression (Call f []) = NameApply (compileExpression f) $ NameFree "nil"
 compileExpression (Call f args) = foldr (flip NameApply) (compileExpression f) $ compileExpression <$> args
 compileExpression (Fun [] b) = NameLambda Nothing (compileExpression b)
 compileExpression (Fun ns b) = foldr NameLambda (compileExpression b) $ Just <$> ns
+compileExpression (Case x hs) = NameEliminate (compileExpression x) $ second compileExpression <$> hs
 
 compileStatement :: Statement Expression -> Statement NameTerm
 compileStatement = fmap compileExpression

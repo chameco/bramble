@@ -29,7 +29,7 @@ substNeutral n x (NFree n')
   | n == n' = x
   | otherwise = VNeutral $ NFree n'
 substNeutral n x (NApply m y) = vApply (substNeutral n x m) $ substValue n x y
-substNeutral n x (NADTEliminate m t hs) = vADTEliminate (substNeutral n x m) (substValue n x t) $ second (substValue n x) <$> hs
+substNeutral n x (NADTEliminate m hs) = vADTEliminate (substNeutral n x m) $ second (substValue n x) <$> hs
 
 substValue :: Name -> Value -> Value -> Value
 substValue n x (VLambda f) = VLambda $ f . substValue n x
@@ -74,7 +74,7 @@ check :: forall (m :: Type -> Type). MonadThrow m => [Statement Term] -> m ()
 check = void . foldlM process []
   where process :: [(Name, Value, Value)] -> Statement Term -> m [(Name, Value, Value)]
         process env (Define n t x) = checkTerm (types env) x t' $> (Name n, t', x'):env
-          where x' = substAll (terms env) $ evalTerm t
+          where x' = substAll (terms env) $ evalTerm x
                 t' = substAll (terms env) $ evalTerm t
         process env (Debug _) = pure env
         process env (Check _) = pure env

@@ -64,12 +64,17 @@ vernacularizePiBinders exp = throw . VernacularPiBinderListError $ pretty exp
 piHelper :: MonadThrow m => SExp -> SExp -> m Expression
 piHelper ns b = Forall <$> vernacularizePiBinders ns <*> vernacularizeExpression b
 
+vernacularizeCase :: MonadThrow m => SExp -> m (Text, Expression)
+vernacularizeCase (List [Symbol n, x]) = (n,) <$> vernacularizeExpression x
+vernacularizeCase exp = throw . VernacularCaseError $ pretty exp
+
 vernacularizeExpression :: MonadThrow m => SExp -> m Expression
-vernacularizeExpression (List [Symbol "the", ty, t]) = The <$> vernacularizeExpression ty <*> vernacularizeExpression t
+vernacularizeExpression (List [Symbol "the", t, x]) = The <$> vernacularizeExpression t <*> vernacularizeExpression x
 vernacularizeExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
 vernacularizeExpression (List [Symbol "λ", ns, b]) = lambdaHelper ns b
 vernacularizeExpression (List [Symbol "pi", ns, b]) = piHelper ns b
 vernacularizeExpression (List [Symbol "∀", ns, b]) = piHelper ns b
+vernacularizeExpression (List (Symbol "case":x:hs)) = Case <$> vernacularizeExpression x <*> mapM vernacularizeCase hs
 vernacularizeExpression (List (exp:exps)) = Call <$> vernacularizeExpression exp <*> mapM vernacularizeExpression exps
 vernacularizeExpression (Symbol "Type") = pure Type
 vernacularizeExpression (Symbol n) = pure $ Var n

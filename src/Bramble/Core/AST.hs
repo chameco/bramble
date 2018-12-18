@@ -54,7 +54,7 @@ data TermInf where
 
   ADT :: Text -> Sum TermCheck -> TermInf
   ADTConstruct :: Text -> TermCheck -> [TermCheck] -> TermInf
-  ADTEliminate :: TermInf -> TermCheck -> [(Text, TermCheck)] -> TermInf
+  ADTEliminate :: TermInf -> [(Text, TermCheck)] -> TermInf
 deriving instance Show TermInf
 deriving instance Eq TermInf
 
@@ -67,7 +67,7 @@ instance Pretty TermInf where
   pretty (Apply f x) = mconcat ["(", pretty f, " ", pretty x, ")"]
   pretty (ADT n s) = mconcat ["{", n, " = ", pretty s, "}"]
   pretty (ADTConstruct cn _ args) = "{" <> cn <> (if null args then "" else " ") <> unwords (pretty <$> args) <> "}"
-  pretty (ADTEliminate x _ hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
+  pretty (ADTEliminate x hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
 
 data TermCheck where
   Inf :: TermInf -> TermCheck
@@ -82,7 +82,7 @@ instance Pretty TermCheck where
 data Neutral where
   NFree :: Name -> Neutral
   NApply :: Neutral -> Value -> Neutral
-  NADTEliminate :: Neutral -> Value -> [(Text, Value)] -> Neutral
+  NADTEliminate :: Neutral -> [(Text, Value)] -> Neutral
 
 data Value where
   VLambda :: (Value -> Value) -> Value
@@ -98,15 +98,15 @@ vApply (VLambda b) v = b v
 vApply (VNeutral n) v = VNeutral $ NApply n v
 vApply _ _ = error "malformed expression"
 
-vADTEliminate :: Value -> Value -> [(Text, Value)] -> Value
-vADTEliminate (VADTConstruct cn (VADT _ (Sum ps)) args) _ hs =
+vADTEliminate :: Value -> [(Text, Value)] -> Value
+vADTEliminate (VADTConstruct cn (VADT _ (Sum ps)) args) hs =
   if length ps == length hs
   then case lookup cn hs of
     Just body -> foldr (flip vApply) body args
     _ -> error "malformed expression"
   else error "malformed expression"
-vADTEliminate (VNeutral n) t hs = VNeutral $ NADTEliminate n t hs
-vADTEliminate _ _ _ = error "malformed expression"
+vADTEliminate (VNeutral n) hs = VNeutral $ NADTEliminate n hs
+vADTEliminate _ _ = error "malformed expression"
 
 evalInf :: TermInf -> [Value] -> Value
 evalInf (Annotate e _) env = evalCheck e env
@@ -117,7 +117,7 @@ evalInf (Bound i) env = env !! i
 evalInf (Apply f x) env = vApply (evalInf f env) $ evalCheck x env
 evalInf (ADT n s) env = VADT n (flip evalCheck env <$> s)
 evalInf (ADTConstruct cn t args) env = VADTConstruct cn (evalCheck t env) $ flip evalCheck env <$> args
-evalInf (ADTEliminate x t hs) env = vADTEliminate (evalInf x env) (evalCheck t env) $ second (`evalCheck` env) <$> hs
+evalInf (ADTEliminate x hs) env = vADTEliminate (evalInf x env) $ second (`evalCheck` env) <$> hs
 
 evalCheck :: TermCheck -> [Value] -> Value
 evalCheck (Inf x) env = evalInf x env
@@ -130,7 +130,7 @@ substInf n x (Bound i) | i == n = x
                        | otherwise = Bound i
 substInf n x (Apply f y) = Apply (substInf n x f) $ substCheck n x y
 substInf n x (ADTConstruct cn t args) = ADTConstruct cn t $ substCheck n x <$> args
-substInf n x (ADTEliminate y t hs) = ADTEliminate (substInf n x y) (substCheck n x t) $ fmap (second $ substCheck n x) hs
+substInf n x (ADTEliminate y hs) = ADTEliminate (substInf n x y) $ fmap (second $ substCheck n x) hs
 substInf _ _ b = b
 
 substCheck :: Int -> TermInf -> TermCheck -> TermCheck
@@ -149,7 +149,7 @@ quote = go 0
         nq :: Int -> Neutral -> TermInf
         nq i (NFree x) = boundfree i x
         nq i (NApply n v) = Apply (nq i n) $ go i v
-        nq i (NADTEliminate n t hs) = ADTEliminate (nq i n) (go i t) $ second (go i) <$> hs
+        nq i (NADTEliminate n hs) = ADTEliminate (nq i n) $ second (go i) <$> hs
         boundfree :: Int -> Name -> TermInf
         boundfree i (Quote k) = Bound $ i - k - 1
         boundfree _ x = Free x
@@ -190,22 +190,26 @@ typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
         else throw . ConstructorArityMismatch cn (length fs) $ length args
       Nothing -> throw $ InvalidConstructor n cn
   _ -> throw $ ConstructNonADT (pretty t) cn
-typeInf i env (ADTEliminate x t hs) = do
+typeInf i env (ADTEliminate x hs) = do
   xt <- typeInf i env x
-  let t' = evalCheck t []
-  typeCheck i env t VStar
   case xt of
-    VADT n s@(Sum ps) ->
-      if length ps == length hs
-      then do
-        forM_ hs $ \(cn, h) ->
-          case lookupProduct cn s of
-            Just (Product _ p) ->
-              typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t' p
-            _ -> throw $ InvalidConstructor n cn
-        pure . VPi xt $ const t'
-      else throw . MissingCases n (length ps) $ length hs
+    VADT n s@(Sum ps) -> case hs of
+      ((_, h1):_) -> 
+        if length ps == length hs
+        then do
+          t <- typeInf i env $ codomain h1
+          forM_ hs $ \(cn, h) ->
+            case lookupProduct cn s of
+              Just (Product _ p) ->
+                typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t p
+              _ -> throw $ InvalidConstructor n cn
+          pure t
+        else throw . MissingCases n (length ps) $ length hs
+      [] -> throw EmptyCase
     _ -> throw . EliminateNonADT (pretty x) . pretty $ quote xt
+  where codomain :: TermCheck -> TermInf
+        codomain (Lambda b) = codomain b
+        codomain (Inf y) = y
 typeCheck :: MonadThrow m => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
 typeCheck i env (Inf x) v = do
   v' <- typeInf i env x
@@ -231,6 +235,7 @@ evalTerm (TermCheck x) = evalCheck x []
 
 typeOfTerm :: MonadThrow m => [(Name, Value)] -> Term -> m Value
 typeOfTerm env (TermInf x) = typeInf 0 env x
+typeOfTerm env (TermCheck (Inf x)) = typeInf 0 env x
 typeOfTerm _ (TermCheck x) = throw . CannotInferType $ pretty x
 
 checkTerm :: MonadThrow m => [(Name, Value)] -> Term -> Value -> m ()
@@ -246,4 +251,4 @@ testFalse :: TermInf
 testFalse = ADTConstruct "False" (Inf testBool) []
 
 testElim :: TermInf
-testElim = ADTEliminate testFalse (Inf Star) [("False", Inf testBool), ("True", Inf Star)]
+testElim = ADTEliminate testFalse [("False", Inf testBool), ("True", Inf Star)]
