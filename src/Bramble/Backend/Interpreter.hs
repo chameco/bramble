@@ -3,7 +3,6 @@ module Bramble.Backend.Interpreter where
 import GHC.Num ((-))
 
 import Control.Applicative (pure, (*>))
-import Control.Arrow (second)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Exception.Safe (MonadThrow)
 
@@ -12,32 +11,15 @@ import Data.Monoid ((<>))
 import Data.Functor (fmap, void, (<$>), ($>))
 import Data.Foldable (foldlM)
 import Data.Function (($), (.))
-import Data.Eq ((==))
 import Data.List (length)
-import Data.Bool (otherwise)
 import Data.Int (Int)
 import Data.Text (Text)
 import Data.Text.IO (putStrLn)
 
 import Bramble.Utility.Pretty
-import Bramble.Core.AST
-import Bramble.Core.ADT
+import Bramble.Core.Calculus
+import Bramble.Core.Inductive
 import Bramble.Core.Vernacular
-
-substNeutral :: Name -> Value -> Neutral -> Value
-substNeutral n x (NFree n')
-  | n == n' = x
-  | otherwise = VNeutral $ NFree n'
-substNeutral n x (NApply m y) = vApply (substNeutral n x m) $ substValue n x y
-substNeutral n x (NADTEliminate m hs) = vADTEliminate (substNeutral n x m) $ second (substValue n x) <$> hs
-
-substValue :: Name -> Value -> Value -> Value
-substValue n x (VLambda f) = VLambda $ f . substValue n x
-substValue _ _ VStar = VStar
-substValue n x (VPi t f) = VPi (substValue n x t) $ f . substValue n x
-substValue n x (VNeutral m) = substNeutral n x m
-substValue n x (VADT n' s) = VADT n' $ substValue n x <$> s
-substValue n x (VADTConstruct cn t args) = VADTConstruct cn (substValue n x t) $ substValue n x <$> args
 
 substAll :: [(Name, Value)] -> Value -> Value
 substAll [] x = x

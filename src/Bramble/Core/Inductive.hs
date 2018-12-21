@@ -1,4 +1,4 @@
-module Bramble.Core.ADT where
+module Bramble.Core.Inductive where
 
 import Data.Kind (Type)
 import Data.Monoid ((<>))

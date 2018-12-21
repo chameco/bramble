@@ -10,7 +10,7 @@ import Data.Text (Text)
 import Text.Show (Show)
 
 import Bramble.Utility.Pretty
-import Bramble.Core.ADT
+import Bramble.Core.Inductive
 
 data Statement a where
   Define :: Text -> a -> a -> Statement a

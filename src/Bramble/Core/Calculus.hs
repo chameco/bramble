@@ -1,4 +1,4 @@
-module Bramble.Core.AST where
+module Bramble.Core.Calculus where
 
 import GHC.Num ((+), (-))
 import GHC.Err (error)
@@ -23,7 +23,7 @@ import Text.Show (Show, show)
 
 import Bramble.Utility.Pretty
 import Bramble.Utility.Error
-import Bramble.Core.ADT
+import Bramble.Core.Inductive
 
 validateSum :: forall m. MonadThrow m => Int -> [(Name, Value)] -> Sum TermCheck -> m ()
 validateSum i env (Sum ps) = mapM_ vp ps
@@ -107,6 +107,21 @@ vADTEliminate (VADTConstruct cn (VADT _ (Sum ps)) args) hs =
   else error "malformed expression"
 vADTEliminate (VNeutral n) hs = VNeutral $ NADTEliminate n hs
 vADTEliminate _ _ = error "malformed expression"
+
+substNeutral :: Name -> Value -> Neutral -> Value
+substNeutral n x (NFree n')
+  | n == n' = x
+  | otherwise = VNeutral $ NFree n'
+substNeutral n x (NApply m y) = vApply (substNeutral n x m) $ substValue n x y
+substNeutral n x (NADTEliminate m hs) = vADTEliminate (substNeutral n x m) $ second (substValue n x) <$> hs
+
+substValue :: Name -> Value -> Value -> Value
+substValue n x (VLambda f) = VLambda $ f . substValue n x
+substValue _ _ VStar = VStar
+substValue n x (VPi t f) = VPi (substValue n x t) $ f . substValue n x
+substValue n x (VNeutral m) = substNeutral n x m
+substValue n x (VADT n' s) = VADT n' $ substValue n x <$> s
+substValue n x (VADTConstruct cn t args) = VADTConstruct cn (substValue n x t) $ substValue n x <$> args
 
 evalInf :: TermInf -> [Value] -> Value
 evalInf (Annotate e _) env = evalCheck e env
@@ -199,7 +214,7 @@ typeInf i env (ADTEliminate x hs) = do
         then do
           t <- typeInf i env $ codomain h1
           forM_ hs $ \(cn, h) ->
-            case lookupProduct cn s of
+            case lookupProduct cn $ substValue Self xt <$> s of
               Just (Product _ p) ->
                 typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t p
               _ -> throw $ InvalidConstructor n cn

@@ -18,7 +18,7 @@ import Options.Applicative (Parser, execParser, subparser, command, info, helper
 
 import Bramble.Utility.Error
 import Bramble.Frontend
-import Bramble.Core.AST
+import Bramble.Core.Calculus
 import Bramble.Backend.Interpreter
 
 data ReplOptions = ReplOptions

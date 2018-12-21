@@ -11,8 +11,8 @@ import Data.Text (Text)
 
 import Text.Show (Show)
 
-import Bramble.Core.Renamer
 import Bramble.Core.Vernacular
+import Bramble.Core.Named
 
 data Expression where
   The :: Expression -> Expression -> Expression

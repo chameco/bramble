@@ -1,4 +1,4 @@
-module Bramble.Core.Renamer where
+module Bramble.Core.Named where
 
 import GHC.Num ((+))
 
@@ -19,7 +19,7 @@ import Data.Text (Text, unpack)
 import Text.Show (Show)
 
 import Bramble.Utility.Pretty
-import Bramble.Core.AST
+import Bramble.Core.Calculus
 import Bramble.Core.Vernacular
 
 data NameTerm where

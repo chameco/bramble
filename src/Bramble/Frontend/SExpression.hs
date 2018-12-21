@@ -1,4 +1,4 @@
-module Bramble.Frontend.AST where
+module Bramble.Frontend.SExpression where
 
 import Control.Monad (mapM)
 import Control.Applicative (pure, (<*>))
@@ -16,7 +16,7 @@ import Text.Show (Show)
 
 import Bramble.Utility.Pretty
 import Bramble.Utility.Error
-import Bramble.Core.ADT
+import Bramble.Core.Inductive
 import Bramble.Core.Vernacular
 import Bramble.Frontend.Expression
 

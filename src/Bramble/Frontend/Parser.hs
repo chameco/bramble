@@ -19,7 +19,7 @@ import Text.Megaparsec (Parsec, parse, parseErrorPretty, some, many, (<|>))
 import Text.Megaparsec.Char (satisfy, char, spaceChar)
 
 import Bramble.Utility.Error
-import Bramble.Frontend.AST
+import Bramble.Frontend.SExpression
 
 type Parser = Parsec Void Text
 
