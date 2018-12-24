@@ -73,23 +73,25 @@ newtype ParseError
 instance Exception ParseError where
   displayException (ParseError e) = unpack e
 
-data VernacularError
-  = VernacularStatementError Text
-  | VernacularExpressionError Text
-  | VernacularConstructorError Text
-  | VernacularLambdaBinderError Text
-  | VernacularLambdaBinderListError Text
-  | VernacularPiBinderError Text
-  | VernacularPiBinderListError Text
-  | VernacularCaseError Text
+data ReadError
+  = ReadStatementError Text
+  | ReadExpressionError Text
+  | ReadConstructorError Text
+  | ReadLambdaBinderError Text
+  | ReadLambdaBinderListError Text
+  | ReadPiBinderError Text
+  | ReadPiBinderListError Text
+  | ReadParameterError Text
+  | ReadCaseError Text
   deriving Show
 
-instance Exception VernacularError where
-  displayException (VernacularStatementError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular statement"]
-  displayException (VernacularExpressionError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular expression"]
-  displayException (VernacularConstructorError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular constructor definition"]
-  displayException (VernacularLambdaBinderError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular lambda-binder"]
-  displayException (VernacularLambdaBinderListError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a list of vernacular lambda-binders"]
-  displayException (VernacularPiBinderError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular pi-binder"]
-  displayException (VernacularPiBinderListError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a list of vernacular pi-binders"]
-  displayException (VernacularCaseError exp) = unpack $ mconcat ["Could not convert S-expression \"", exp, "\" to a vernacular case"]
+instance Exception ReadError where
+  displayException (ReadStatementError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a vernacular statement"]
+  displayException (ReadExpressionError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as an expression"]
+  displayException (ReadConstructorError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a constructor definition"]
+  displayException (ReadLambdaBinderError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a function parameter"]
+  displayException (ReadLambdaBinderListError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a list of function parameters"]
+  displayException (ReadPiBinderError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a binder"]
+  displayException (ReadPiBinderListError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a list of binders"]
+  displayException (ReadParameterError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a data type parameter"]
+  displayException (ReadCaseError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a case expression"]

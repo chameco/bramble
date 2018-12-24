@@ -42,14 +42,14 @@ run Repl{} = runInputT defaultSettings $ loop []
             Nothing -> pure ()
             Just line -> do
               env' <- liftIO $ catches (frontend "input" line >>= interpret env)
-                [ Handler $ \(e :: TypeError) -> do
-                    putStrLn $ "Type error: " <> displayException e
-                    pure env
-                , Handler $ \(e :: ParseError) -> do
+                [ Handler $ \(e :: ParseError) -> do
                     putStrLn $ "Parse error: " <> displayException e
                     pure env
-                , Handler $ \(e :: VernacularError) -> do
+                , Handler $ \(e :: ReadError) -> do
                     putStrLn $ "Read error: " <> displayException e
+                    pure env
+                , Handler $ \(e :: TypeError) -> do
+                    putStrLn $ "Type error: " <> displayException e
                     pure env
                 ]
               loop env'

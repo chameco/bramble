@@ -42,58 +42,58 @@ stripComments all@(x:xs)
       List exps:xs' -> List (filter isComment exps):stripComments xs'
       _ -> x:stripComments xs
 
-vernacularizeLambdaBinder :: MonadThrow m => SExp -> m Text
-vernacularizeLambdaBinder (Symbol n) = pure n
-vernacularizeLambdaBinder exp = throw . VernacularLambdaBinderError $ pretty exp
+readLambdaBinder :: MonadThrow m => SExp -> m Text
+readLambdaBinder (Symbol n) = pure n
+readLambdaBinder exp = throw . ReadLambdaBinderError $ pretty exp
 
-vernacularizeLambdaBinders :: MonadThrow m => SExp -> m [Text]
-vernacularizeLambdaBinders (List exps) = mapM vernacularizeLambdaBinder exps
-vernacularizeLambdaBinders exp = throw . VernacularLambdaBinderListError $ pretty exp
+readLambdaBinders :: MonadThrow m => SExp -> m [Text]
+readLambdaBinders (List exps) = mapM readLambdaBinder exps
+readLambdaBinders exp = throw . ReadLambdaBinderListError $ pretty exp
 
 lambdaHelper :: MonadThrow m => SExp -> SExp -> m Expression
-lambdaHelper ns b = Fun <$> vernacularizeLambdaBinders ns <*> vernacularizeExpression b
+lambdaHelper ns b = Fun <$> readLambdaBinders ns <*> readExpression b
 
-vernacularizePiBinder :: MonadThrow m => SExp -> m (Text, Expression)
-vernacularizePiBinder (List [Symbol n, t]) = (n,) <$> vernacularizeExpression t
-vernacularizePiBinder exp = throw . VernacularPiBinderError $ pretty exp
+readBinder :: MonadThrow m => SExp -> m (Text, Expression)
+readBinder (List [Symbol n, t]) = (n,) <$> readExpression t
+readBinder exp = throw . ReadPiBinderError $ pretty exp
 
-vernacularizePiBinders :: MonadThrow m => SExp -> m [(Text, Expression)]
-vernacularizePiBinders (List exps) = mapM vernacularizePiBinder exps
-vernacularizePiBinders exp = throw . VernacularPiBinderListError $ pretty exp
+readBinders :: MonadThrow m => SExp -> m [(Text, Expression)]
+readBinders (List exps) = mapM readBinder exps
+readBinders exp = throw . ReadPiBinderListError $ pretty exp
 
 piHelper :: MonadThrow m => SExp -> SExp -> m Expression
-piHelper ns b = Forall <$> vernacularizePiBinders ns <*> vernacularizeExpression b
+piHelper ns b = Forall <$> readBinders ns <*> readExpression b
 
-vernacularizeCase :: MonadThrow m => SExp -> m (Text, Expression)
-vernacularizeCase (List [Symbol n, x]) = (n,) <$> vernacularizeExpression x
-vernacularizeCase exp = throw . VernacularCaseError $ pretty exp
+readCase :: MonadThrow m => SExp -> m (Text, Expression)
+readCase (List [Symbol n, x]) = (n,) <$> readExpression x
+readCase exp = throw . ReadCaseError $ pretty exp
 
-vernacularizeExpression :: MonadThrow m => SExp -> m Expression
-vernacularizeExpression (List [Symbol "the", t, x]) = The <$> vernacularizeExpression t <*> vernacularizeExpression x
-vernacularizeExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
-vernacularizeExpression (List [Symbol "λ", ns, b]) = lambdaHelper ns b
-vernacularizeExpression (List [Symbol "pi", ns, b]) = piHelper ns b
-vernacularizeExpression (List [Symbol "∀", ns, b]) = piHelper ns b
-vernacularizeExpression (List (Symbol "case":x:hs)) = Case <$> vernacularizeExpression x <*> mapM vernacularizeCase hs
-vernacularizeExpression (List (exp:exps)) = Call <$> vernacularizeExpression exp <*> mapM vernacularizeExpression exps
-vernacularizeExpression (Symbol "Type") = pure Type
-vernacularizeExpression (Symbol n) = pure $ Var n
-vernacularizeExpression exp = throw . VernacularExpressionError $ pretty exp
+readExpression :: MonadThrow m => SExp -> m Expression
+readExpression (List [Symbol "the", t, x]) = The <$> readExpression t <*> readExpression x
+readExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
+readExpression (List [Symbol "λ", ns, b]) = lambdaHelper ns b
+readExpression (List [Symbol "pi", ns, b]) = piHelper ns b
+readExpression (List [Symbol "∀", ns, b]) = piHelper ns b
+readExpression (List (Symbol "case":x:hs)) = Case <$> readExpression x <*> mapM readCase hs
+readExpression (List (exp:exps)) = Call <$> readExpression exp <*> mapM readExpression exps
+readExpression (Symbol "Type") = pure Type
+readExpression (Symbol n) = pure $ Var n
+readExpression exp = throw . ReadExpressionError $ pretty exp
 
-vernacularizeProduct :: MonadThrow m => SExp -> m (Product Expression)
-vernacularizeProduct (List (Symbol n:exps)) = Product n <$> mapM vernacularizeExpression exps
-vernacularizeProduct (Symbol n) = pure $ Product n []
-vernacularizeProduct exp = throw . VernacularConstructorError $ pretty exp
+readProduct :: MonadThrow m => SExp -> m (Product Expression)
+readProduct (List (Symbol n:exps)) = Product n <$> mapM readExpression exps
+readProduct (Symbol n) = pure $ Product n []
+readProduct exp = throw . ReadConstructorError $ pretty exp
 
-vernacularizeSum :: MonadThrow m => [SExp] -> m (Sum Expression)
-vernacularizeSum exps = Sum <$> mapM vernacularizeProduct exps
+readSum :: MonadThrow m => [SExp] -> m (Sum Expression)
+readSum exps = Sum <$> mapM readProduct exps
 
-vernacularizeStatement :: MonadThrow m => SExp -> m (Statement Expression)
-vernacularizeStatement (List [Symbol "define", Symbol n, ty, t]) = Define n <$> vernacularizeExpression ty <*> vernacularizeExpression t
-vernacularizeStatement (List (Symbol "data":Symbol n:exps)) = Data n <$> vernacularizeSum exps
-vernacularizeStatement (List [Symbol "debug", x]) = Debug <$> vernacularizeExpression x
-vernacularizeStatement (List [Symbol "check", x]) = Check <$> vernacularizeExpression x
-vernacularizeStatement exp = throw . VernacularStatementError $ pretty exp
+readStatement :: MonadThrow m => SExp -> m (Statement Expression)
+readStatement (List [Symbol "define", Symbol n, ty, t]) = Define n <$> readExpression ty <*> readExpression t
+readStatement (List (Symbol "data":Symbol n:ps:exps)) = Data n <$> readBinders ps <*> readSum exps
+readStatement (List [Symbol "debug", x]) = Debug <$> readExpression x
+readStatement (List [Symbol "check", x]) = Check <$> readExpression x
+readStatement exp = throw . ReadStatementError $ pretty exp
 
-vernacularize :: MonadThrow m => [SExp] -> m [Statement Expression]
-vernacularize = mapM vernacularizeStatement
+read :: MonadThrow m => [SExp] -> m [Statement Expression]
+read = mapM readStatement

@@ -16,6 +16,6 @@ import Bramble.Core.Calculus
 
 frontend :: MonadThrow m => Text -> Text -> m [Statement Term]
 frontend file = parse file
-                >=> vernacularize
+                >=> read
                 >=> pure . compile
                 >=> rename
