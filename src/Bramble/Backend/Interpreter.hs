@@ -3,20 +3,23 @@ module Bramble.Backend.Interpreter where
 import GHC.Num ((-))
 
 import Control.Applicative (pure, (*>))
+import Control.Monad (mapM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Arrow (second)
 import Control.Exception.Safe (MonadThrow)
 
 import Data.Kind (Type)
-import Data.Monoid ((<>))
+import Data.Monoid (mconcat, (<>))
 import Data.Functor (fmap, void, (<$>), ($>))
 import Data.Foldable (foldlM)
 import Data.Function (($), (.))
 import Data.Tuple (fst)
 import Data.List (length)
 import Data.Int (Int)
-import Data.Text (Text)
+import Data.Text (Text, pack)
 import Data.Text.IO (putStrLn)
+
+import Text.Show (show)
 
 import Bramble.Utility.Pretty
 import Bramble.Core.Calculus
@@ -45,7 +48,7 @@ curryConstructorType (t:ts) t' = VPi t $ \_ -> curryConstructorType ts t'
 
 buildADT :: [(Name, Value, Value)] -> Text -> [(Text, Value)] -> Sum Value -> [(Name, Value, Value)]
 buildADT env n ps s = buildSum (substAll (terms env') <$> s) <> env'
-  where s' = substAll (terms $ (Name n, VStar, VNeutral $ NFree Self):env) <$> s
+  where s' = substAll (terms env) <$> s
         t = VADT n (VNeutral . NFree . Name . fst <$> ps) s'
         wrapTerm = curryADTWrap ps
         wrapType = curryADTTypeWrap ps
@@ -64,7 +67,7 @@ terms = fmap (\(n, _, x) -> (n, x))
 types :: [(Name, Value, Value)] -> [(Name, Value)]
 types = fmap (\(n, t, _) -> (n, t))
 
-check :: forall (m :: Type -> Type). MonadThrow m => [Statement Term] -> m ()
+check :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [Statement Term] -> m ()
 check = void . foldlM process []
   where process :: [(Name, Value, Value)] -> Statement Term -> m [(Name, Value, Value)]
         process env (Define n t x) = checkTerm (types env) x t' $> (Name n, t', x'):env
@@ -73,6 +76,7 @@ check = void . foldlM process []
         process env (Debug _) = pure env
         process env (Check _) = pure env
         process env (Data n ps s) = pure $ buildADT env n (second evalTerm <$> ps) $ evalTerm <$> s
+        process env Env = pure env
 
 interpret :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [(Name, Value, Value)] -> [Statement Term] -> m [(Name, Value, Value)]
 interpret e p = check p *> foldlM process e p
@@ -80,11 +84,16 @@ interpret e p = check p *> foldlM process e p
         process env (Define n t x) = pure $ (Name n, t', x'):env
           where x' = substAll (terms env) $ evalTerm x
                 t' = substAll (terms env) $ evalTerm t
+        process env (Data n ps s) = pure $ buildADT env n (second evalTerm <$> ps) $ evalTerm <$> s
         process env (Debug x) = (liftIO . putStrLn . pretty $ quote x') $> env
           where x' = substAll (terms env) $ evalTerm x
         process env (Check x) = do
+          liftIO . putStrLn . pretty $ quote x'
+          liftIO . putStrLn . pack . show $ quote x'
           t' <- typeOfTerm (types env) . TermCheck $ quote x'
           liftIO . putStrLn . pretty $ quote t'
           pure env
           where x' = substAll (terms env) $ evalTerm x
-        process env (Data n ps s) = pure $ buildADT env n (second evalTerm <$> ps) $ evalTerm <$> s
+        process env Env = liftIO (mapM_ (putStrLn . printEnv) env) $> env
+          where printEnv :: (Name, Value, Value) -> Text
+                printEnv (n, t, x) = mconcat [pretty n, " := ", pretty $ quote x, " : ", pretty $ quote t]

@@ -93,6 +93,7 @@ readStatement (List [Symbol "define", Symbol n, ty, t]) = Define n <$> readExpre
 readStatement (List (Symbol "data":Symbol n:ps:exps)) = Data n <$> readBinders ps <*> readSum exps
 readStatement (List [Symbol "debug", x]) = Debug <$> readExpression x
 readStatement (List [Symbol "check", x]) = Check <$> readExpression x
+readStatement (List [Symbol "env"]) = pure Env
 readStatement exp = throw . ReadStatementError $ pretty exp
 
 read :: MonadThrow m => [SExp] -> m [Statement Expression]

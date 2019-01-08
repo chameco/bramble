@@ -32,7 +32,6 @@ validateSum i env (Sum ps) = mapM_ vp ps
 
 data Name where
   Name :: Text -> Name
-  Self :: Name
   Quote :: Int -> Name
   Local :: Int -> Name
 deriving instance Show Name
@@ -40,7 +39,6 @@ deriving instance Eq Name
 
 instance Pretty Name where
   pretty (Name n) = n
-  pretty Self = "<self>"
   pretty (Quote i) = mconcat ["<quote-", pack $ show i, ">"]
   pretty (Local i) = mconcat ["<local-", pack $ show i, ">"]
 
@@ -169,7 +167,7 @@ quote = go 0
         boundfree i (Quote k) = Bound $ i - k - 1
         boundfree _ x = Free x
 
-typeInf :: MonadThrow m  => Int -> [(Name, Value)] -> TermInf -> m Value
+typeInf :: MonadThrow m => Int -> [(Name, Value)] -> TermInf -> m Value
 typeInf i env (Annotate e t) = do
   typeCheck i env t VStar
   let t' = evalCheck t []
@@ -193,7 +191,7 @@ typeInf i env (Apply f x) = do
       pure . b $ evalCheck x []
     _ -> throw . IllegalApplication (pretty f) (pretty $ quote ft) $ pretty x
 typeInf i env (ADT _ _ s) = do
-  validateSum i ((Self, VStar):env) s
+  validateSum i env s
   pure VStar
 typeInf i env (ADTConstruct cn t args) = case evalCheck t [] of
   t'@(VADT n _ s) ->
@@ -214,7 +212,7 @@ typeInf i env (ADTEliminate x hs) = do
         then do
           t <- typeInf i env $ codomain h1
           forM_ hs $ \(cn, h) ->
-            case lookupProduct cn $ substValue Self xt <$> s of
+            case lookupProduct cn s of
               Just (Product _ p) ->
                 typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t p
               _ -> throw $ InvalidConstructor n cn

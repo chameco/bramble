@@ -17,6 +17,7 @@ data Statement a where
   Data :: Text -> [(Text, a)] -> Sum a -> Statement a
   Debug :: a -> Statement a
   Check :: a -> Statement a
+  Env :: Statement a
 deriving instance Show a => Show (Statement a)
 deriving instance Eq a => Eq (Statement a)
 deriving instance Functor Statement
@@ -28,3 +29,4 @@ instance Pretty a => Pretty (Statement a) where
   pretty (Data n ps s) = mconcat ["Data ", n, "(", intercalate ", " (prettyBinder <$> ps), ")", " := ", pretty s, "."]
   pretty (Debug s) = mconcat ["Debug ", pretty s, "."]
   pretty (Check s) = mconcat ["Check ", pretty s, "."]
+  pretty Env = "Env."
