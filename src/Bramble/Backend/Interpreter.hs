@@ -16,10 +16,8 @@ import Data.Function (($), (.))
 import Data.Tuple (fst)
 import Data.List (length)
 import Data.Int (Int)
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import Data.Text.IO (putStrLn)
-
-import Text.Show (show)
 
 import Bramble.Utility.Pretty
 import Bramble.Core.Calculus
@@ -47,19 +45,20 @@ curryConstructorType [] t = t
 curryConstructorType (t:ts) t' = VPi t $ \_ -> curryConstructorType ts t'
 
 buildADT :: [(Name, Value, Value)] -> Text -> [(Text, Value)] -> Sum Value -> [(Name, Value, Value)]
-buildADT env n ps s = buildSum (substAll (terms env') <$> s) <> env'
-  where s' = substAll (terms env) <$> s
-        t = VADT n (VNeutral . NFree . Name . fst <$> ps) s'
+buildADT env n ps s = buildSum s' <> ((Name n, wrapType VStar, wrapMu $ wrapTerm t'):env)
+  where t = VADT n (VNeutral . NFree . Name . fst <$> ps) s
+        t' = substAll (terms env) t
+        s' = substAll (terms env) <$> s
+        wrapMu v = VMu $ \fix -> substValue (Name n) fix v
+        wrapConstructor = substValue (Name n) (wrapMu $ wrapTerm t')
         wrapTerm = curryADTWrap ps
         wrapType = curryADTTypeWrap ps
-        env' = (Name n, wrapType VStar, wrapTerm t):env
-        t' = substAll (terms env') t
         buildSum :: Sum Value -> [(Name, Value, Value)]
         buildSum (Sum prods) = buildProduct <$> prods
         buildProduct :: Product Value -> (Name, Value, Value)
         buildProduct (Product cn ts) = ( Name cn
-                                       , wrapType $ curryConstructorType ts t'
-                                       , wrapTerm $ curryConstructor (length ts) cn t' []
+                                       , wrapConstructor . wrapType . curryConstructorType ts $ wrapMu t'
+                                       , wrapTerm $ curryConstructor (length ts) cn (wrapMu t') []
                                        )
 
 terms :: [(Name, Value, Value)] -> [(Name, Value)]
@@ -88,8 +87,6 @@ interpret e p = check p *> foldlM process e p
         process env (Debug x) = (liftIO . putStrLn . pretty $ quote x') $> env
           where x' = substAll (terms env) $ evalTerm x
         process env (Check x) = do
-          liftIO . putStrLn . pretty $ quote x'
-          liftIO . putStrLn . pack . show $ quote x'
           t' <- typeOfTerm (types env) . TermCheck $ quote x'
           liftIO . putStrLn . pretty $ quote t'
           pure env
