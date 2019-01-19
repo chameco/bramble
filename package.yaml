@@ -7,7 +7,7 @@ maintainer:          "samuel@chame.co"
 copyright:           "2018 Samuel Breese"
 
 extra-source-files:
-- README.md
+- README.org
 
 description:         Please see the README on GitHub at <https://github.com/githubuser/bramble#readme>
 
