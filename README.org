@@ -1,1 +1,7 @@
-#+title: Bramble
+#+title: bramble
+
+#+begin_src
+(data Nat () Z (S Nat))
+(define add (∀ ((_ : Nat) (_ : Nat)) Nat)
+  (λ (x y) (case x (Z y) (S (λ (n) (S (add n y)))))))
+#+end_src

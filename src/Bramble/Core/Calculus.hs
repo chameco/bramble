@@ -49,7 +49,7 @@ data TermInf where
   Bound :: Int -> TermInf
   Free :: Name -> TermInf
   Apply :: TermInf -> TermCheck -> TermInf
-  Unroll :: TermCheck -> TermInf
+  Fix :: TermCheck -> TermCheck -> TermInf
 
   ADT :: Text -> [TermCheck] -> Sum TermCheck -> TermInf
   ADTConstruct :: Text -> TermCheck -> [TermCheck] -> TermInf
@@ -64,7 +64,7 @@ instance Pretty TermInf where
   pretty (Bound i) = pack $ show i
   pretty (Free n) = pretty n
   pretty (Apply f x) = mconcat ["(", pretty f, " ", pretty x, ")"]
-  pretty (Unroll x) = "#" <> pretty x
+  pretty (Fix t f) = mconcat ["Y(", pretty t, ", ", pretty f, ")"]
   pretty (ADT n ps s) = mconcat ["{", n, "(", intercalate ", " $ pretty <$> ps, ")", " = ", pretty s, "}"]
   pretty (ADTConstruct cn _ args) = "{" <> cn <> (if null args then "" else " ") <> unwords (pretty <$> args) <> "}"
   pretty (ADTEliminate x hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
@@ -84,7 +84,7 @@ instance Pretty TermCheck where
 data Neutral where
   NFree :: Name -> Neutral
   NApply :: Neutral -> Value -> Neutral
-  NUnroll :: Neutral -> Neutral
+  NFix :: Value -> Value -> Neutral
   NADTEliminate :: Neutral -> [(Text, Value)] -> Neutral
 
 data Value where
@@ -97,19 +97,22 @@ data Value where
   VADT :: Text -> [Value] -> Sum Value -> Value
   VADTConstruct :: Text -> Value -> [Value] -> Value
 
+unrolling :: Value -> Value
+unrolling v@(VMu b) = b v
+unrolling _ = error "malformed expression"
+
 vApply :: Value -> Value -> Value
 vApply (VLambda b) v = b v
 vApply (VNeutral n) v = VNeutral $ NApply n v
 vApply _ _ = error "malformed expression"
 
-vUnroll :: Value -> Value
-vUnroll v@(VMu b) = b v
-vUnroll (VNeutral n) = VNeutral $ NUnroll n
-vUnroll _ = error "malformed expression"
+vFix :: Value -> Value -> Value
+vFix t v@(VLambda b) = b (VNeutral $ NFix t v)
+vFix t v = VNeutral $ NFix t v
 
 vADTEliminate :: Value -> [(Text, Value)] -> Value
 vADTEliminate (VADTConstruct cn t  args) hs =
-  case vUnroll t of
+  case unrolling t of
     VADT _ _ (Sum ps) ->
       if length ps == length hs
       then case lookup cn hs of
@@ -125,7 +128,7 @@ substNeutral n x (NFree n')
   | n == n' = x
   | otherwise = VNeutral $ NFree n'
 substNeutral n x (NApply m y) = vApply (substNeutral n x m) $ substValue n x y
-substNeutral n x (NUnroll m) = vUnroll $ substNeutral n x m
+substNeutral n x (NFix t v) = vFix (substValue n x t) $ substValue n x v
 substNeutral n x (NADTEliminate m hs) = vADTEliminate (substNeutral n x m) $ second (substValue n x) <$> hs
 
 substValue :: Name -> Value -> Value -> Value
@@ -144,7 +147,7 @@ evalInf (Pi t b) env = VPi (evalCheck t env) $ \x -> evalCheck b (x:env)
 evalInf (Free n) _ = VNeutral $ NFree n
 evalInf (Bound i) env = env !! i
 evalInf (Apply f x) env = vApply (evalInf f env) $ evalCheck x env
-evalInf (Unroll x) env = vUnroll $ evalCheck x env
+evalInf (Fix t f) env = vFix (evalCheck t env) $ evalCheck f env
 evalInf (ADT n ps s) env = VADT n ((`evalCheck` env) <$> ps) (flip evalCheck env <$> s)
 evalInf (ADTConstruct cn t args) env = VADTConstruct cn (evalCheck t env) $ flip evalCheck env <$> args
 evalInf (ADTEliminate x hs) env = vADTEliminate (evalInf x env) $ second (`evalCheck` env) <$> hs
@@ -160,7 +163,7 @@ substInf n x (Pi t b) = Pi (substCheck n x t) $ substCheck (n + 1) x b
 substInf n x (Bound i) | i == n = x
                        | otherwise = Bound i
 substInf n x (Apply f y) = Apply (substInf n x f) $ substCheck n x y
-substInf n x (Unroll y) = Unroll $ substCheck n x y
+substInf n x (ADT n' ps s) = ADT n' (substCheck n x <$> ps) $ substCheck n x <$> s
 substInf n x (ADTConstruct cn t args) = ADTConstruct cn t $ substCheck n x <$> args
 substInf n x (ADTEliminate y hs) = ADTEliminate (substInf n x y) $ fmap (second $ substCheck n x) hs
 substInf _ _ b = b
@@ -183,7 +186,7 @@ quote = go 0
         nq :: Int -> Neutral -> TermInf
         nq i (NFree x) = boundfree i x
         nq i (NApply n v) = Apply (nq i n) $ go i v
-        nq i (NUnroll n) = Unroll . Inf $ nq i n
+        nq i (NFix t v) = Fix (go i t) $ go i v
         nq i (NADTEliminate n hs) = ADTEliminate (nq i n) $ second (go i) <$> hs
         boundfree :: Int -> Name -> TermInf
         boundfree i (Quote k) = Bound $ i - k - 1
@@ -212,9 +215,13 @@ typeInf i env (Apply f x) = do
       typeCheck i env x t
       pure . b $ evalCheck x []
     _ -> throw . IllegalApplication (pretty f) (pretty $ quote ft) $ pretty x
-typeInf i env (Unroll x) = typeCheck i env x VStar $> VStar
+typeInf i env (Fix t f) = do
+  typeCheck i env t VStar
+  let t' = evalCheck t []
+  typeCheck i env f . VPi t' $ const t'
+  pure t'
 typeInf i env (ADT _ _ s) = validateSum i env s $> VStar
-typeInf i env (ADTConstruct cn t args) = case vUnroll $ evalCheck t [] of
+typeInf i env (ADTConstruct cn t args) = case unrolling $ evalCheck t [] of
   VADT n _ s ->
     case lookupProduct cn s of
       Just (Product _ fs) ->
@@ -225,7 +232,7 @@ typeInf i env (ADTConstruct cn t args) = case vUnroll $ evalCheck t [] of
       Nothing -> throw $ InvalidConstructor n cn
   _ -> throw $ ConstructNonADT (pretty t) cn
 typeInf i env (ADTEliminate x hs) = do
-  xt <- vUnroll <$> typeInf i env x
+  xt <- unrolling <$> typeInf i env x
   case xt of
     VADT n _ s@(Sum prods) -> case hs of
       ((_, h1):_) -> 

@@ -13,6 +13,7 @@ data TypeError
   = UnboundIndex Int
   | UnknownIdentifier Text
   | IllegalApplication Text Text Text
+  | IllegalFixpoint Text Text
   | ConstructorArityMismatch Text Int Int
   | InvalidConstructor Text Text
   | ConstructNonADT Text Text
@@ -31,6 +32,10 @@ instance Exception TypeError where
     [ "Illegal application of \"", f
     , "\" (with type \"", t
     , "\") to \"", x, "\""
+    ]
+  displayException (IllegalFixpoint f t) = unpack $ mconcat
+    [ "Illegal fixpoint of \"", f
+    , "\" (with type \"", t , "\")"
     ]
   displayException (ConstructorArityMismatch cn i j) = unpack $ mconcat
     [ "Constructor arity mismatch for \"", cn
