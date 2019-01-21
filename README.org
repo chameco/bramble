@@ -2,6 +2,16 @@
 
 #+begin_src
 (data Nat () Z (S Nat))
+
+(check Nat Type)
+(check Z Nat)
+
 (define add (∀ ((_ : Nat) (_ : Nat)) Nat)
-  (λ (x y) (case x (Z y) (S (λ (n) (S (add n y)))))))
+  (λ (x y)
+    (case x
+      (Z y)
+      (S (λ (n) (S (add n y)))))))
+
+(infer (add (S Z) (S Z)))
+(debug (add (S Z) (S Z)))
 #+end_src
