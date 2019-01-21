@@ -97,17 +97,21 @@ data Value where
   VADT :: Text -> [Value] -> Sum Value -> Value
   VADTConstruct :: Text -> Value -> [Value] -> Value
 
+nApply :: Neutral -> Value -> Value
+nApply (NFix t v@(VLambda b)) x = vApply (b . VNeutral $ NFix t v) x
+nApply n x = VNeutral $ NApply n x
+
 unrolling :: Value -> Value
 unrolling v@(VMu b) = b v
 unrolling _ = error "malformed expression"
 
 vApply :: Value -> Value -> Value
 vApply (VLambda b) v = b v
-vApply (VNeutral n) v = VNeutral $ NApply n v
+vApply (VNeutral n) v = nApply n v
 vApply _ _ = error "malformed expression"
 
 vFix :: Value -> Value -> Value
-vFix t v@(VLambda b) = b (VNeutral $ NFix t v)
+vFix t v@(VLambda b) = b . VNeutral $ NFix t v
 vFix t v = VNeutral $ NFix t v
 
 vADTEliminate :: Value -> [(Text, Value)] -> Value
@@ -128,7 +132,7 @@ substNeutral n x (NFree n')
   | n == n' = x
   | otherwise = VNeutral $ NFree n'
 substNeutral n x (NApply m y) = vApply (substNeutral n x m) $ substValue n x y
-substNeutral n x (NFix t v) = vFix (substValue n x t) $ substValue n x v
+substNeutral n x (NFix t v) = VNeutral . NFix (substValue n x t) $ substValue n x v
 substNeutral n x (NADTEliminate m hs) = vADTEliminate (substNeutral n x m) $ second (substValue n x) <$> hs
 
 substValue :: Name -> Value -> Value -> Value
