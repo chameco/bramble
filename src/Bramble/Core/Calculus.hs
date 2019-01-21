@@ -101,9 +101,9 @@ nApply :: Neutral -> Value -> Value
 nApply (NFix t v@(VLambda b)) x = vApply (b . VNeutral $ NFix t v) x
 nApply n x = VNeutral $ NApply n x
 
-unrolling :: Value -> Value
-unrolling v@(VMu b) = b v
-unrolling _ = error "malformed expression"
+unrolling :: Value -> Maybe Value
+unrolling v@(VMu b) = Just $ b v
+unrolling _ = Nothing
 
 vApply :: Value -> Value -> Value
 vApply (VLambda b) v = b v
@@ -117,7 +117,7 @@ vFix t v = VNeutral $ NFix t v
 vADTEliminate :: Value -> [(Text, Value)] -> Value
 vADTEliminate (VADTConstruct cn t  args) hs =
   case unrolling t of
-    VADT _ _ (Sum ps) ->
+    Just (VADT _ _ (Sum ps)) ->
       if length ps == length hs
       then case lookup cn hs of
         Just body -> foldr (flip vApply) body args
@@ -226,7 +226,7 @@ typeInf i env (Fix t f) = do
   pure t'
 typeInf i env (ADT _ _ s) = validateSum i env s $> VStar
 typeInf i env (ADTConstruct cn t args) = case unrolling $ evalCheck t [] of
-  VADT n _ s ->
+  Just (VADT n _ s) ->
     case lookupProduct cn s of
       Just (Product _ fs) ->
         if length args == length fs
@@ -236,9 +236,9 @@ typeInf i env (ADTConstruct cn t args) = case unrolling $ evalCheck t [] of
       Nothing -> throw $ InvalidConstructor n cn
   _ -> throw $ ConstructNonADT (pretty t) cn
 typeInf i env (ADTEliminate x hs) = do
-  xt <- unrolling <$> typeInf i env x
-  case xt of
-    VADT n _ s@(Sum prods) -> case hs of
+  xt <- typeInf i env x
+  case unrolling xt of
+    Just (VADT n _ s@(Sum prods)) -> case hs of
       ((_, h1):_) -> 
         if length prods == length hs
         then do

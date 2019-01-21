@@ -1,5 +1,12 @@
-#+title: bramble
+#+title: Bramble
 
+Bramble is a dependently-typed programming language, written using S-expressions.
+As in Coq, there are really a few distinct "languages" involved:
+- The /expression language/ (or calculus), which is effectively λΠ (Löh) supplemented with (parametric, recursive) algebraic datatypes and fixpoint.
+- The /vernacular/, which tells the system what expressions to evaluate, typecheck, and compile.
+In practice, this ends up working in exactly the way you'd expect from any other ML/Haskell-like functional language.
+
+* An example
 #+begin_src
 (data Nat () Z (S Nat))
 
