@@ -7,7 +7,7 @@ import Control.Exception.Safe (MonadThrow, throw)
 
 import Data.Monoid ((<>))
 import Data.Functor ((<$>))
-import Data.Function (($), (.))
+import Data.Function (flip, ($), (.))
 import Data.Eq (Eq)
 import Data.Bool (Bool(..), otherwise)
 import Data.List (filter)
@@ -81,17 +81,23 @@ rowHelper e bs = do
           first ((fn, t'):) <$> splitRowBinders xs 
         splitRowBinders exp = throw . ReadRowBinderError $ pretty exp
 
+readField :: MonadThrow m => SExp -> m (Text, Expression)
+readField (List [Symbol n, x]) = (n,) <$> readExpression x
+readField exp = throw . ReadFieldError $ pretty exp
+
 readExpression :: MonadThrow m => SExp -> m Expression
 readExpression (List [Symbol "the", t, x]) = The <$> readExpression t <*> readExpression x
 readExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
 readExpression (List [Symbol "λ", ns, b]) = lambdaHelper ns b
 readExpression (List [Symbol "pi", ns, b]) = piHelper ns b
 readExpression (List [Symbol "∀", ns, b]) = piHelper ns b
+readExpression (List [Symbol ".", x, Symbol fn]) = flip Field fn <$> readExpression x
 readExpression (List (Symbol "case":x:hs)) = Case <$> readExpression x <*> mapM readCase hs
-readExpression (List (Symbol "row":bs)) = rowHelper True bs
+readExpression (List (Symbol "row":bs)) = rowHelper False bs
+readExpression (List (Symbol "row...":bs)) = rowHelper True bs
+readExpression (List (Symbol "record":fs)) = Record <$> mapM readField fs
 readExpression (List (exp:exps)) = Call <$> readExpression exp <*> mapM readExpression exps
 readExpression (Symbol "Type") = pure Type
-readExpression (Symbol "Row") = pure RecordKind
 readExpression (Symbol n) = pure $ Var n
 readExpression exp = throw . ReadExpressionError $ pretty exp
 

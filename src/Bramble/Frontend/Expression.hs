@@ -23,7 +23,6 @@ data Expression where
   Call :: Expression -> [Expression] -> Expression
   Fun :: [Text] -> Expression -> Expression
   Case :: Expression -> [(Text, Expression)] -> Expression
-  RecordKind :: Expression
   RecordType :: Bool -> [(Text, Expression)] -> [Text] -> Expression
   Record :: [(Text, Expression)] -> Expression
   Field :: Expression -> Text -> Expression
@@ -41,7 +40,6 @@ compileExpression (Call f args) = foldl' NameApply (compileExpression f) $ compi
 compileExpression (Fun [] b) = NameLambda Nothing (compileExpression b)
 compileExpression (Fun ns b) = foldl' (flip NameLambda) (compileExpression b) $ Just <$> ns
 compileExpression (Case x hs) = NameADTEliminate (compileExpression x) $ second compileExpression <$> hs
-compileExpression RecordKind = NameRowKind
 compileExpression (RecordType e fs es) = NameRow e (second compileExpression <$> fs) es
 compileExpression (Record fs) = NameRowConstruct $ second compileExpression <$> fs
 compileExpression (Field x fn) = NameRowEliminate (compileExpression x) fn

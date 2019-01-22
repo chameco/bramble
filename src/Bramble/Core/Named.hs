@@ -32,7 +32,6 @@ data NameTerm where
   NameLambda :: Maybe Text -> NameTerm -> NameTerm
 
   NameADTEliminate :: NameTerm -> [(Text, NameTerm)] -> NameTerm
-  NameRowKind :: NameTerm
   NameRow :: Bool -> [(Text, NameTerm)] -> [Text] -> NameTerm
   NameRowConstruct :: [(Text, NameTerm)] -> NameTerm
   NameRowEliminate :: NameTerm -> Text -> NameTerm
@@ -54,7 +53,6 @@ debruijn n i x@(NameLambda n' b)
   | n == n' = x
   | otherwise = NameLambda n' $ debruijn n (i + 1) b
 debruijn n i (NameADTEliminate x args) = NameADTEliminate (debruijn n i x) $ second (debruijn n i) <$> args
-debruijn _ _ NameRowKind = NameRowKind
 debruijn n i (NameRow e fs es) = NameRow e (second (debruijn n i) <$> fs) es
 debruijn n i (NameRowConstruct fs) = NameRowConstruct $ second (debruijn n i) <$> fs
 debruijn n i (NameRowEliminate x fn) = NameRowEliminate (debruijn n i x) fn
@@ -80,7 +78,6 @@ renameTerm (NameADTEliminate x args) = do
   case rx of
     TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
     TermInf y -> TermInf <$> (ADTEliminate y <$> mapM (\(n, z) -> (n,) . repr <$> renameTerm z) args)
-renameTerm NameRowKind = pure $ TermInf RowKind
 renameTerm (NameRow e fs es) = TermInf . flip (Row e) es <$> mapM (\(n, x) -> (n,) . repr <$> renameTerm x) fs
 renameTerm (NameRowConstruct fs) = TermCheck . RowConstruct <$> mapM (\(n, x) -> (n,) . repr <$> renameTerm x) fs
 renameTerm (NameRowEliminate x fn) = do

@@ -95,7 +95,9 @@ interpret e p = check e p *> foldlM process e p
           pure env
           where x' = substAll (terms env) $ evalTerm x
         process env (Check x t) = do
-          checkTerm (types env) (TermCheck $ quote x') t' $> env
+          checkTerm (types env) (TermCheck $ quote t') VStar
+          checkTerm (types env) (TermCheck $ quote x') t'
+          pure env
           where x' = substAll (terms env) $ evalTerm x
                 t' = substAll (terms env) $ evalTerm t
         process env Env = liftIO (mapM_ (putStrLn . printEnv) env) $> env

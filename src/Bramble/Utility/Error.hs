@@ -68,12 +68,12 @@ instance Exception TypeError where
     ]
   displayException (TypeMismatch t x t') = unpack $ mconcat
     [ "Expected \"", t
-    , "\" but found \"", x
+    , "\" but found term \"", x
     , "\" with type \"", t', "\""
     ]
   displayException (StructuralTypeMismatch t x) = unpack $ mconcat
     [ "Expected \"", t
-    , "\" but found \"", x, "\""
+    , "\" but found term \"", x, "\""
     ]
   displayException (CannotInferType x) = unpack $ mconcat ["Cannot infer type of \"", x, "\""]
   displayException (ImpossibleRow fn r) = unpack $ mconcat ["Row \"", r, "\" both requires and excludes field \"", fn, "\""]
@@ -83,14 +83,14 @@ instance Exception TypeError where
     , "\" with non-row type \"", t, "\""
     ]
   displayException (MissingField fn x t) = unpack $ mconcat
-    [ "Term \"", x
-    , "\" of type \"", t
-    , "\" does not have field \"", fn, "\""
+    [ "Missing field \"", fn
+    , "\" in term \"", x
+    , "\" of type \"", t, "\""
     ]
   displayException (ExcludedField fn x t) = unpack $ mconcat
-    [ "Term \"", x
-    , "\" of type \"", t
-    , "\" has excluded field \"", fn, "\""
+    [ "Excluded field \"", fn
+    , "\" in term \"", x
+    , "\" of type \"", t, "\""
     ]
 
 newtype ParseError
@@ -111,6 +111,7 @@ data ReadError
   | ReadParameterError Text
   | ReadCaseError Text
   | ReadRowBinderError Text
+  | ReadFieldError Text
   deriving Show
 
 instance Exception ReadError where
@@ -124,3 +125,4 @@ instance Exception ReadError where
   displayException (ReadParameterError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a data type parameter"]
   displayException (ReadCaseError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a case expression"]
   displayException (ReadRowBinderError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a row binder"]
+  displayException (ReadFieldError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a field assignment"]

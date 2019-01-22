@@ -55,7 +55,6 @@ data TermInf where
   ADTConstruct :: Text -> TermCheck -> [TermCheck] -> TermInf
   ADTEliminate :: TermInf -> [(Text, TermCheck)] -> TermInf
 
-  RowKind :: TermInf
   Row :: Bool -> [(Text, TermCheck)] -> [Text] -> TermInf
   RowEliminate :: TermInf -> Text -> TermInf
 deriving instance Show TermInf
@@ -72,10 +71,9 @@ instance Pretty TermInf where
   pretty (ADT n ps s) = mconcat ["{", n, "(", intercalate ", " $ pretty <$> ps, ")", " = ", pretty s, "}"]
   pretty (ADTConstruct cn _ args) = "{" <> cn <> (if null args then "" else " ") <> unwords (pretty <$> args) <> "}"
   pretty (ADTEliminate x hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
-  pretty RowKind = "Row"
   pretty (Row e fs es) = mconcat [ "{"
                                  , intercalate ", " ((\(fn, ft) -> fn <> " : " <> pretty ft) <$> fs)
-                                 , if null fs then "" else ", "
+                                 , if null es then "" else ", "
                                  , intercalate ", " (("exclude "<>) <$> es)
                                  , if e then " ... }" else "}"
                                  ]
@@ -112,7 +110,6 @@ data Value where
   VADT :: Text -> [Value] -> Sum Value -> Value
   VADTConstruct :: Text -> Value -> [Value] -> Value
 
-  VRowKind :: Value
   VRow :: Bool -> [(Text, Value)] -> [Text] -> Value
   VRowConstruct :: [(Text, Value)] -> Value
 
@@ -168,7 +165,6 @@ substValue n x (VMu f) = VMu $ substValue n x . f
 substValue n x (VNeutral m) = substNeutral n x m
 substValue n x (VADT n' ps s) = VADT n' (substValue n x <$> ps) $ substValue n x <$> s
 substValue n x (VADTConstruct cn t args) = VADTConstruct cn (substValue n x t) $ substValue n x <$> args
-substValue _ _ VRowKind = VRowKind
 substValue n x (VRow e fs es) = VRow e (second (substValue n x) <$> fs) es
 substValue n x (VRowConstruct fs) = VRowConstruct $ second (substValue n x) <$> fs
 
@@ -183,7 +179,6 @@ evalInf (Fix t f) env = vFix (evalCheck t env) $ evalCheck f env
 evalInf (ADT n ps s) env = VADT n ((`evalCheck` env) <$> ps) (flip evalCheck env <$> s)
 evalInf (ADTConstruct cn t args) env = VADTConstruct cn (evalCheck t env) $ flip evalCheck env <$> args
 evalInf (ADTEliminate x hs) env = vADTEliminate (evalInf x env) $ second (`evalCheck` env) <$> hs
-evalInf RowKind _ = VRowKind
 evalInf (Row e fs es) env = VRow e (second (`evalCheck` env) <$> fs) es
 evalInf (RowEliminate x fn) env = vRowEliminate (evalInf x env) fn
 
@@ -205,7 +200,6 @@ substInf n x (Fix t f) = Fix (substCheck n x t) $ substCheck n x f
 substInf n x (ADT n' ps s) = ADT n' (substCheck n x <$> ps) $ substCheck n x <$> s
 substInf n x (ADTConstruct cn t args) = ADTConstruct cn t $ substCheck n x <$> args
 substInf n x (ADTEliminate y hs) = ADTEliminate (substInf n x y) $ second (substCheck n x) <$> hs
-substInf _ _ RowKind = RowKind
 substInf n x (Row e fs es) = Row e (second (substCheck n x) <$> fs) es
 substInf n x (RowEliminate y fn) = RowEliminate (substInf n x y) fn
 
@@ -225,7 +219,6 @@ quote = go 0
         go i (VNeutral n) = Inf $ nq i n
         go i (VADT n ps s) = Inf $ ADT n (go i <$> ps) $ go i <$> s
         go i (VADTConstruct n t args) = Inf . ADTConstruct n (go i t) $ go i <$> args
-        go _ VRowKind = Inf RowKind
         go i (VRow e fs es) = Inf $ Row e (second (go i) <$> fs) es
         go i (VRowConstruct fs) = RowConstruct $ second (go i) <$> fs
         nq :: Int -> Neutral -> TermInf
@@ -300,13 +293,12 @@ typeInf i env elim@(ADTEliminate x hs) = do
         codomain (Lambda b) = codomain b
         codomain (Inf y) = Just y
         codomain _ = Nothing
-typeInf _ _ RowKind = pure VStar
 typeInf i env r@(Row _ fs es) = do
   forM_ fs $ \(fn, ft) ->
     if fn `elem` es
     then throw . ImpossibleRow fn $ pretty r
     else typeCheck i env ft VStar
-  pure VRowKind
+  pure VStar
 typeInf i env (RowEliminate x fn) = do
   xt <- typeInf i env x
   case xt of
