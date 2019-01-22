@@ -5,7 +5,6 @@ As in Coq, there are really a few distinct "languages" involved:
 - The /expression language/ (or calculus), which is effectively λΠ (Löh) supplemented with (parametric, recursive) algebraic datatypes and fixpoint.
 - The /vernacular/, which tells the system what expressions to evaluate, typecheck, and compile.
 In practice, this ends up working in exactly the way you'd expect from any other ML/Haskell-like functional language.
-
 * An example
 #+begin_src
 (data Nat () Z (S Nat))
@@ -22,3 +21,24 @@ In practice, this ends up working in exactly the way you'd expect from any other
 (infer (add (S Z) (S Z)))
 (debug (add (S Z) (S Z)))
 #+end_src
+* Goals
+- A language with a powerful type system that is trivial to extend with new compilation targets
+- Those compilation targets can be weird, not just "mainstream" languages (DSLs for other programs, scripts inside game engines, etc.)
+- Adding new targets should be a "normal" workflow with Bramble that doesn't require deep knowledge of compiler internals
+- Explicit is better than implicit, always: hide resulting verbosity with macros if necessary
+- Completely uniform syntax (Coq is pretty good at this, Haskell is not =:[=)
+- It's worth sacrificing speed for versatility (e.g. in compilation targets), always
+- Trusting proofs in an unsound system requires a better "cheating heuristic" than just searching for "Admitted.", but it's still possible
+* Features
+- Recursive/parametric algebraic datatypes (not GADTs yet, since there are only parameters, not indices)
+- Record subtyping
+- Unrestricted fixpoint. This is a design choice that leads to:
+- ~Type : Type~, because who cares about Girard's paradox when ~∀(a : Type). a~ is already inhabited
+* Non-features
+- Type inference
+- Any kind of inference of anything, really, including implicit arguments and "typeclass instances" (records)
+* Future plans (roughly sorted by decreasing priority)
+- More vernacular directives, evaluate/typecheck from CLI rather than from REPL
+- Typesafe macros
+- Compiler backends as data
+- Better error messages/backtraces
