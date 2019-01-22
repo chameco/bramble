@@ -37,7 +37,7 @@ In practice, this ends up working in exactly the way you'd expect from any other
 * Non-features
 - Type inference
 - Any kind of inference of anything, really, including implicit arguments and "typeclass instances" (records)
-* Future plans (roughly sorted by decreasing priority)
+* Future plans (decreasing priority)
 - More vernacular directives, evaluate/typecheck from CLI rather than from REPL
 - Typesafe macros
 - Compiler backends as data
