@@ -18,11 +18,16 @@ data TypeError
   | InvalidConstructor Text Text
   | ConstructNonADT Text Text
   | MissingCases Text Int Int
+  | BadCase Text Text
   | EmptyCase
   | EliminateNonADT Text Text
   | TypeMismatch Text Text Text
   | StructuralTypeMismatch Text Text
   | CannotInferType Text
+  | ImpossibleRow Text Text
+  | EliminateNonRow Text Text Text
+  | MissingField Text Text Text
+  | ExcludedField Text Text Text
   deriving Show
 
 instance Exception TypeError where
@@ -55,6 +60,7 @@ instance Exception TypeError where
     , "\": expected ", pack $ show i
     , " but received ", pack $ show j
     ]
+  displayException (BadCase x elim) = unpack $ mconcat ["Bad case branch in \"", elim, "\" when attempting to eliminate \"", x, "\""]
   displayException EmptyCase = "Empty case expression is disallowed"
   displayException (EliminateNonADT x t) = unpack $ mconcat
     [ "Attempt to eliminate term \"", x
@@ -70,6 +76,22 @@ instance Exception TypeError where
     , "\" but found \"", x, "\""
     ]
   displayException (CannotInferType x) = unpack $ mconcat ["Cannot infer type of \"", x, "\""]
+  displayException (ImpossibleRow fn r) = unpack $ mconcat ["Row \"", r, "\" both requires and excludes field \"", fn, "\""]
+  displayException (EliminateNonRow fn x t) = unpack $ mconcat
+    [ "Attempt to access field \"", fn
+    , "\" of term \"", x
+    , "\" with non-row type \"", t, "\""
+    ]
+  displayException (MissingField fn x t) = unpack $ mconcat
+    [ "Term \"", x
+    , "\" of type \"", t
+    , "\" does not have field \"", fn, "\""
+    ]
+  displayException (ExcludedField fn x t) = unpack $ mconcat
+    [ "Term \"", x
+    , "\" of type \"", t
+    , "\" has excluded field \"", fn, "\""
+    ]
 
 newtype ParseError
   = ParseError Text
@@ -88,6 +110,7 @@ data ReadError
   | ReadPiBinderListError Text
   | ReadParameterError Text
   | ReadCaseError Text
+  | ReadRowBinderError Text
   deriving Show
 
 instance Exception ReadError where
@@ -100,3 +123,4 @@ instance Exception ReadError where
   displayException (ReadPiBinderListError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a list of binders"]
   displayException (ReadParameterError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a data type parameter"]
   displayException (ReadCaseError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a case expression"]
+  displayException (ReadRowBinderError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a row binder"]

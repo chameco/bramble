@@ -1,5 +1,6 @@
 module Bramble.Frontend.SExpression where
 
+import Control.Arrow (first, second)
 import Control.Monad (mapM)
 import Control.Applicative (pure, (<*>))
 import Control.Exception.Safe (MonadThrow, throw)
@@ -68,6 +69,18 @@ readCase :: MonadThrow m => SExp -> m (Text, Expression)
 readCase (List [Symbol n, x]) = (n,) <$> readExpression x
 readCase exp = throw . ReadCaseError $ pretty exp
 
+rowHelper :: forall m. MonadThrow m => Bool -> [SExp] -> m Expression
+rowHelper e bs = do
+  (fs, es) <- splitRowBinders bs
+  pure $ RecordType e fs es
+  where splitRowBinders :: [SExp] -> m ([(Text, Expression)], [Text])
+        splitRowBinders [] = pure ([], [])
+        splitRowBinders (List [Symbol "!", Symbol fn]:xs) = second (fn:) <$> splitRowBinders xs 
+        splitRowBinders (List [Symbol fn, t]:xs) = do
+          t' <- readExpression t
+          first ((fn, t'):) <$> splitRowBinders xs 
+        splitRowBinders exp = throw . ReadRowBinderError $ pretty exp
+
 readExpression :: MonadThrow m => SExp -> m Expression
 readExpression (List [Symbol "the", t, x]) = The <$> readExpression t <*> readExpression x
 readExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
@@ -75,8 +88,10 @@ readExpression (List [Symbol "λ", ns, b]) = lambdaHelper ns b
 readExpression (List [Symbol "pi", ns, b]) = piHelper ns b
 readExpression (List [Symbol "∀", ns, b]) = piHelper ns b
 readExpression (List (Symbol "case":x:hs)) = Case <$> readExpression x <*> mapM readCase hs
+readExpression (List (Symbol "row":bs)) = rowHelper True bs
 readExpression (List (exp:exps)) = Call <$> readExpression exp <*> mapM readExpression exps
 readExpression (Symbol "Type") = pure Type
+readExpression (Symbol "Row") = pure RecordKind
 readExpression (Symbol n) = pure $ Var n
 readExpression exp = throw . ReadExpressionError $ pretty exp
 

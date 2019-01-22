@@ -4,18 +4,18 @@ import GHC.Num ((+), (-))
 import GHC.Err (error)
 
 import Control.Applicative (pure)
-import Control.Monad (mapM_, forM_, unless)
+import Control.Monad (mapM_, forM_, when, unless)
 import Control.Arrow (second)
 import Control.Exception.Safe (MonadThrow, throw)
 
 import Data.Monoid (mconcat, (<>))
-import Data.Functor (fmap, (<$>), ($>))
-import Data.Foldable (foldr)
+import Data.Functor ((<$>), ($>))
+import Data.Foldable (foldr, elem)
 import Data.Eq (Eq, (==))
 import Data.Function (flip, const, ($), (.))
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), fromMaybe)
 import Data.List (null, length, zip, lookup, (!!))
-import Data.Bool (otherwise)
+import Data.Bool (Bool(..), otherwise)
 import Data.Int (Int)
 import Data.Text (Text, pack, unwords, intercalate)
 
@@ -54,6 +54,10 @@ data TermInf where
   ADT :: Text -> [TermCheck] -> Sum TermCheck -> TermInf
   ADTConstruct :: Text -> TermCheck -> [TermCheck] -> TermInf
   ADTEliminate :: TermInf -> [(Text, TermCheck)] -> TermInf
+
+  RowKind :: TermInf
+  Row :: Bool -> [(Text, TermCheck)] -> [Text] -> TermInf
+  RowEliminate :: TermInf -> Text -> TermInf
 deriving instance Show TermInf
 deriving instance Eq TermInf
 
@@ -68,11 +72,20 @@ instance Pretty TermInf where
   pretty (ADT n ps s) = mconcat ["{", n, "(", intercalate ", " $ pretty <$> ps, ")", " = ", pretty s, "}"]
   pretty (ADTConstruct cn _ args) = "{" <> cn <> (if null args then "" else " ") <> unwords (pretty <$> args) <> "}"
   pretty (ADTEliminate x hs) = "{" <> pretty x <> " ! " <> intercalate "; " ((\(cn, b) -> cn <> " -> " <> pretty b) <$> hs) <> "}"
+  pretty RowKind = "Row"
+  pretty (Row e fs es) = mconcat [ "{"
+                                 , intercalate ", " ((\(fn, ft) -> fn <> " : " <> pretty ft) <$> fs)
+                                 , if null fs then "" else ", "
+                                 , intercalate ", " (("exclude "<>) <$> es)
+                                 , if e then " ... }" else "}"
+                                 ]
+  pretty (RowEliminate x fn) = pretty x <> "." <> fn
 
 data TermCheck where
   Inf :: TermInf -> TermCheck
   Lambda :: TermCheck -> TermCheck
   Mu :: TermCheck -> TermCheck
+  RowConstruct :: [(Text, TermCheck)] -> TermCheck
 deriving instance Show TermCheck
 deriving instance Eq TermCheck
 
@@ -80,12 +93,14 @@ instance Pretty TermCheck where
   pretty (Inf x) = pretty x
   pretty (Lambda b) = "λ." <> pretty b
   pretty (Mu b) = "μ." <> pretty b
+  pretty (RowConstruct fs) = "{" <> intercalate "; " ((\(fn, x) -> fn <> " := " <> pretty x) <$> fs) <> "}"
 
 data Neutral where
   NFree :: Name -> Neutral
   NApply :: Neutral -> Value -> Neutral
   NFix :: Value -> Value -> Neutral
   NADTEliminate :: Neutral -> [(Text, Value)] -> Neutral
+  NRowEliminate :: Neutral -> Text -> Neutral
 
 data Value where
   VLambda :: (Value -> Value) -> Value
@@ -96,6 +111,10 @@ data Value where
 
   VADT :: Text -> [Value] -> Sum Value -> Value
   VADTConstruct :: Text -> Value -> [Value] -> Value
+
+  VRowKind :: Value
+  VRow :: Bool -> [(Text, Value)] -> [Text] -> Value
+  VRowConstruct :: [(Text, Value)] -> Value
 
 nApply :: Neutral -> Value -> Value
 nApply (NFix t v@(VLambda b)) x = vApply (b . VNeutral $ NFix t v) x
@@ -115,7 +134,7 @@ vFix t v@(VLambda b) = b . VNeutral $ NFix t v
 vFix t v = VNeutral $ NFix t v
 
 vADTEliminate :: Value -> [(Text, Value)] -> Value
-vADTEliminate (VADTConstruct cn t  args) hs =
+vADTEliminate (VADTConstruct cn t args) hs =
   case unrolling t of
     Just (VADT _ _ (Sum ps)) ->
       if length ps == length hs
@@ -127,6 +146,11 @@ vADTEliminate (VADTConstruct cn t  args) hs =
 vADTEliminate (VNeutral n) hs = VNeutral $ NADTEliminate n hs
 vADTEliminate _ _ = error "malformed expression"
 
+vRowEliminate :: Value -> Text -> Value
+vRowEliminate (VRowConstruct fs) fn = fromMaybe (error "malformed expression") $ lookup fn fs
+vRowEliminate (VNeutral n) fn = VNeutral $ NRowEliminate n fn
+vRowEliminate _ _ = error "malformed expression"
+    
 substNeutral :: Name -> Value -> Neutral -> Value
 substNeutral n x (NFree n')
   | n == n' = x
@@ -134,6 +158,7 @@ substNeutral n x (NFree n')
 substNeutral n x (NApply m y) = vApply (substNeutral n x m) $ substValue n x y
 substNeutral n x (NFix t v) = VNeutral . NFix (substValue n x t) $ substValue n x v
 substNeutral n x (NADTEliminate m hs) = vADTEliminate (substNeutral n x m) $ second (substValue n x) <$> hs
+substNeutral n x (NRowEliminate m fn) = vRowEliminate (substNeutral n x m) fn
 
 substValue :: Name -> Value -> Value -> Value
 substValue n x (VLambda f) = VLambda $ substValue n x . f
@@ -143,6 +168,9 @@ substValue n x (VMu f) = VMu $ substValue n x . f
 substValue n x (VNeutral m) = substNeutral n x m
 substValue n x (VADT n' ps s) = VADT n' (substValue n x <$> ps) $ substValue n x <$> s
 substValue n x (VADTConstruct cn t args) = VADTConstruct cn (substValue n x t) $ substValue n x <$> args
+substValue _ _ VRowKind = VRowKind
+substValue n x (VRow e fs es) = VRow e (second (substValue n x) <$> fs) es
+substValue n x (VRowConstruct fs) = VRowConstruct $ second (substValue n x) <$> fs
 
 evalInf :: TermInf -> [Value] -> Value
 evalInf (Annotate e _) env = evalCheck e env
@@ -155,27 +183,37 @@ evalInf (Fix t f) env = vFix (evalCheck t env) $ evalCheck f env
 evalInf (ADT n ps s) env = VADT n ((`evalCheck` env) <$> ps) (flip evalCheck env <$> s)
 evalInf (ADTConstruct cn t args) env = VADTConstruct cn (evalCheck t env) $ flip evalCheck env <$> args
 evalInf (ADTEliminate x hs) env = vADTEliminate (evalInf x env) $ second (`evalCheck` env) <$> hs
+evalInf RowKind _ = VRowKind
+evalInf (Row e fs es) env = VRow e (second (`evalCheck` env) <$> fs) es
+evalInf (RowEliminate x fn) env = vRowEliminate (evalInf x env) fn
 
 evalCheck :: TermCheck -> [Value] -> Value
 evalCheck (Inf x) env = evalInf x env
 evalCheck (Lambda b) env = VLambda $ \x -> evalCheck b (x:env)
 evalCheck (Mu b) env = VMu $ \x -> evalCheck b (x:env)
+evalCheck (RowConstruct fs) env = VRowConstruct $ second (`evalCheck` env) <$> fs
 
 substInf :: Int -> TermInf -> TermInf -> TermInf
 substInf n x (Annotate e t) = Annotate (substCheck n x e) (substCheck n x t)
+substInf _ _ Star = Star
 substInf n x (Pi t b) = Pi (substCheck n x t) $ substCheck (n + 1) x b
+substInf _ _ v@Free{} = v
 substInf n x (Bound i) | i == n = x
                        | otherwise = Bound i
 substInf n x (Apply f y) = Apply (substInf n x f) $ substCheck n x y
+substInf n x (Fix t f) = Fix (substCheck n x t) $ substCheck n x f
 substInf n x (ADT n' ps s) = ADT n' (substCheck n x <$> ps) $ substCheck n x <$> s
 substInf n x (ADTConstruct cn t args) = ADTConstruct cn t $ substCheck n x <$> args
-substInf n x (ADTEliminate y hs) = ADTEliminate (substInf n x y) $ fmap (second $ substCheck n x) hs
-substInf _ _ b = b
+substInf n x (ADTEliminate y hs) = ADTEliminate (substInf n x y) $ second (substCheck n x) <$> hs
+substInf _ _ RowKind = RowKind
+substInf n x (Row e fs es) = Row e (second (substCheck n x) <$> fs) es
+substInf n x (RowEliminate y fn) = RowEliminate (substInf n x y) fn
 
 substCheck :: Int -> TermInf -> TermCheck -> TermCheck
 substCheck n x (Inf y) = Inf $ substInf n x y
 substCheck n x (Lambda b) = Lambda $ substCheck (n + 1) x b
 substCheck n x (Mu b) = Mu $ substCheck (n + 1) x b
+substCheck n x (RowConstruct fs) = RowConstruct $ second (substCheck n x) <$> fs
 
 quote :: Value -> TermCheck
 quote = go 0
@@ -187,11 +225,15 @@ quote = go 0
         go i (VNeutral n) = Inf $ nq i n
         go i (VADT n ps s) = Inf $ ADT n (go i <$> ps) $ go i <$> s
         go i (VADTConstruct n t args) = Inf . ADTConstruct n (go i t) $ go i <$> args
+        go _ VRowKind = Inf RowKind
+        go i (VRow e fs es) = Inf $ Row e (second (go i) <$> fs) es
+        go i (VRowConstruct fs) = RowConstruct $ second (go i) <$> fs
         nq :: Int -> Neutral -> TermInf
         nq i (NFree x) = boundfree i x
         nq i (NApply n v) = Apply (nq i n) $ go i v
         nq i (NFix t v) = Fix (go i t) $ go i v
         nq i (NADTEliminate n hs) = ADTEliminate (nq i n) $ second (go i) <$> hs
+        nq i (NRowEliminate n fn) = RowEliminate (nq i n) fn
         boundfree :: Int -> Name -> TermInf
         boundfree i (Quote k) = Bound $ i - k - 1
         boundfree _ x = Free x
@@ -235,27 +277,44 @@ typeInf i env (ADTConstruct cn t args) = case unrolling $ evalCheck t [] of
         else throw . ConstructorArityMismatch cn (length fs) $ length args
       Nothing -> throw $ InvalidConstructor n cn
   _ -> throw $ ConstructNonADT (pretty t) cn
-typeInf i env (ADTEliminate x hs) = do
+typeInf i env elim@(ADTEliminate x hs) = do
   xt <- typeInf i env x
   case unrolling xt of
     Just (VADT n _ s@(Sum prods)) -> case hs of
       ((_, h1):_) -> 
         if length prods == length hs
-        then do
-          t <- typeInf i env $ codomain h1
-          forM_ hs $ \(cn, h) ->
-            case lookupProduct cn s of
-              Just (Product _ p) ->
-                typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t p
-              _ -> throw $ InvalidConstructor n cn
-          pure t
+        then case typeInf i env <$> codomain h1 of
+               Just mt -> do
+                 t <- mt
+                 forM_ hs $ \(cn, h) ->
+                   case lookupProduct cn s of
+                     Just (Product _ p) ->
+                       typeCheck i env h $ foldr (\pt b -> VPi pt $ const b) t p
+                     _ -> throw $ InvalidConstructor n cn
+                 pure t
+               Nothing -> throw . BadCase (pretty x) $ pretty elim
         else throw . MissingCases n (length prods) $ length hs
       [] -> throw EmptyCase
     _ -> throw . EliminateNonADT (pretty x) . pretty $ quote xt
-  where codomain :: TermCheck -> TermInf
+  where codomain :: TermCheck -> Maybe TermInf
         codomain (Lambda b) = codomain b
-        codomain (Mu b) = codomain b
-        codomain (Inf y) = y
+        codomain (Inf y) = Just y
+        codomain _ = Nothing
+typeInf _ _ RowKind = pure VStar
+typeInf i env r@(Row _ fs es) = do
+  forM_ fs $ \(fn, ft) ->
+    if fn `elem` es
+    then throw . ImpossibleRow fn $ pretty r
+    else typeCheck i env ft VStar
+  pure VRowKind
+typeInf i env (RowEliminate x fn) = do
+  xt <- typeInf i env x
+  case xt of
+    VRow _ fs _ ->
+      case lookup fn fs of
+        Just t -> pure t
+        _ -> throw . MissingField fn (pretty x) . pretty $ quote xt
+    _ -> throw . EliminateNonRow fn (pretty x) . pretty $ quote xt
 
 typeCheck :: MonadThrow m => Int -> [(Name, Value)] -> TermCheck -> Value -> m ()
 typeCheck i env (Inf x) v = do
@@ -265,6 +324,16 @@ typeCheck i env (Lambda b) (VPi t b') =
   typeCheck (i + 1) ((Local i, t):env) (substCheck 0 (Free (Local i)) b) . b' . VNeutral . NFree $ Local i
 typeCheck i env (Mu b) VStar =
   typeCheck (i + 1) ((Local i, VStar):env) (substCheck 0 (Free (Local i)) b) VStar
+typeCheck i env rc@(RowConstruct fs) rt@(VRow e fts es) = do
+  forM_ fts $ \(fn, ft) ->
+    case lookup fn fs of
+      Just x -> typeCheck i env x ft
+      Nothing -> throw . MissingField fn (pretty rc) . pretty $ quote rt
+  forM_ fs $ \(fn, _) -> do
+    when (fn `elem` es) . throw . ExcludedField fn (pretty rc) . pretty $ quote rt
+    unless e $ case lookup fn fts of
+      Just _ -> pure ()
+      _ -> throw . ExcludedField fn (pretty rc) . pretty $ quote rt
 typeCheck _ _ x v = throw . StructuralTypeMismatch (pretty $ quote v) $ pretty x
 
 data Term = TermInf TermInf

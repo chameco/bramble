@@ -9,10 +9,10 @@ import Control.Exception.Safe (MonadThrow, throwString)
 
 import Data.Monoid (mconcat)
 import Data.Functor ((<$>))
-import Data.Function (($), (.))
+import Data.Function (flip, ($), (.))
 import Data.Maybe (Maybe(..))
 import Data.Eq (Eq, (==))
-import Data.Bool (otherwise)
+import Data.Bool (Bool, otherwise)
 import Data.Int (Int)
 import Data.Text (Text, unpack)
 
@@ -31,7 +31,11 @@ data NameTerm where
   NameApply :: NameTerm -> NameTerm -> NameTerm
   NameLambda :: Maybe Text -> NameTerm -> NameTerm
 
-  NameEliminate :: NameTerm -> [(Text, NameTerm)] -> NameTerm
+  NameADTEliminate :: NameTerm -> [(Text, NameTerm)] -> NameTerm
+  NameRowKind :: NameTerm
+  NameRow :: Bool -> [(Text, NameTerm)] -> [Text] -> NameTerm
+  NameRowConstruct :: [(Text, NameTerm)] -> NameTerm
+  NameRowEliminate :: NameTerm -> Text -> NameTerm
 deriving instance Show NameTerm
 deriving instance Eq NameTerm
 
@@ -49,7 +53,11 @@ debruijn n i (NameApply f x) = NameApply (debruijn n i f) $ debruijn n i x
 debruijn n i x@(NameLambda n' b)
   | n == n' = x
   | otherwise = NameLambda n' $ debruijn n (i + 1) b
-debruijn n i (NameEliminate x args) = NameEliminate (debruijn n i x) $ second (debruijn n i) <$> args
+debruijn n i (NameADTEliminate x args) = NameADTEliminate (debruijn n i x) $ second (debruijn n i) <$> args
+debruijn _ _ NameRowKind = NameRowKind
+debruijn n i (NameRow e fs es) = NameRow e (second (debruijn n i) <$> fs) es
+debruijn n i (NameRowConstruct fs) = NameRowConstruct $ second (debruijn n i) <$> fs
+debruijn n i (NameRowEliminate x fn) = NameRowEliminate (debruijn n i x) fn
 
 renameTerm :: MonadThrow m => NameTerm -> m Term
 renameTerm (NameAnnotate e t) = TermInf <$> (Annotate
@@ -67,11 +75,19 @@ renameTerm (NameApply f x) = do
     TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
     TermInf y -> TermInf <$> (Apply y <$> (repr <$> renameTerm x))
 renameTerm (NameLambda n b) = TermCheck <$> (Lambda <$> (repr <$> renameTerm (debruijn n 0 b)))
-renameTerm (NameEliminate x args) = do
+renameTerm (NameADTEliminate x args) = do
   rx <- renameTerm x
   case rx of
     TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
     TermInf y -> TermInf <$> (ADTEliminate y <$> mapM (\(n, z) -> (n,) . repr <$> renameTerm z) args)
+renameTerm NameRowKind = pure $ TermInf RowKind
+renameTerm (NameRow e fs es) = TermInf . flip (Row e) es <$> mapM (\(n, x) -> (n,) . repr <$> renameTerm x) fs
+renameTerm (NameRowConstruct fs) = TermCheck . RowConstruct <$> mapM (\(n, x) -> (n,) . repr <$> renameTerm x) fs
+renameTerm (NameRowEliminate x fn) = do
+  rx <- renameTerm x
+  case rx of
+    TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
+    TermInf y -> pure . TermInf $ RowEliminate y fn
 
 rename :: MonadThrow m => [Statement NameTerm] -> m [Statement Term]
 rename = mapM (mapM renameTerm)
