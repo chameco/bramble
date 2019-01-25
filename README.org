@@ -24,7 +24,7 @@ In practice, this ends up working in exactly the way you'd expect from any other
 * Goals
 - A language with a powerful type system that is trivial to extend with new compilation targets
 - Those compilation targets can be weird, not just "mainstream" languages (DSLs for other programs, scripts inside game engines, etc.)
-- Adding new targets should be a "normal" workflow with Bramble that doesn't require deep knowledge of compiler internals
+- Adding new targets should be a "normal" workflow that doesn't require deep knowledge of compiler internals
 - Explicit is better than implicit, always: hide resulting verbosity with macros if necessary
 - Completely uniform syntax (Coq is pretty good at this, Haskell is not =:[=)
 - It's worth sacrificing speed for versatility (e.g. in compilation targets), always

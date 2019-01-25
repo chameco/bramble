@@ -81,9 +81,7 @@ check e = void . foldlM process e
 interpret :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [(Name, Value, Value)] -> [Statement Term] -> m [(Name, Value, Value)]
 interpret e p = check e p *> foldlM process e p
   where process :: [(Name, Value, Value)] -> Statement Term -> m [(Name, Value, Value)]
-        process env (Define n t x) = do
-          liftIO . putStrLn . pretty $ quote x'
-          pure $ (Name n, t', x'):env
+        process env (Define n t x) = pure $ (Name n, t', x'):env
           where x' = VNeutral . NFix t' . VLambda $ \fix -> substValue (Name n) fix . substAll (terms env) $ evalTerm x
                 t' = substAll (terms env) $ evalTerm t
         process env (Data n ps s) = pure $ buildADT env n (second evalTerm <$> ps) $ evalTerm <$> s

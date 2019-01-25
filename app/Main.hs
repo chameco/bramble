@@ -21,20 +21,27 @@ import Bramble.Frontend
 import Bramble.Core.Calculus
 import Bramble.Backend.Interpreter
 
-data ReplOptions = ReplOptions
+data REPLOptions = REPLOptions
 
-replOptions :: Parser ReplOptions
-replOptions = pure ReplOptions
+replOptions :: Parser REPLOptions
+replOptions = pure REPLOptions
 
-newtype Options = Repl ReplOptions
+data CheckOptions = CheckOptions
+
+checkOptions :: Parser CheckOptions
+checkOptions = pure CheckOptions
+
+data Options = REPL REPLOptions
+             | Check CheckOptions
 
 options :: Parser Options
 options = subparser $ mconcat
-  [ command "repl" (info (Repl <$> replOptions) (progDesc "Launch REPL"))
+  [ command "repl" (info (REPL <$> replOptions) (progDesc "Launch REPL"))
+  , command "check" (info (Check <$> checkOptions) (progDesc "Typecheck file"))
   ]
 
 run :: Options -> IO ()
-run Repl{} = runInputT defaultSettings $ loop []
+run REPL{} = runInputT defaultSettings $ loop []
   where loop :: [(Name, Value, Value)] -> InputT IO ()
         loop env = do
           l <- fmap pack <$> getInputLine "λ "
@@ -53,6 +60,7 @@ run Repl{} = runInputT defaultSettings $ loop []
                     pure env
                 ]
               loop env'
+run Check{} = pure ()
 
 main :: IO ()
 main = execParser opts >>= run

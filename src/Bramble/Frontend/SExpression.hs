@@ -90,6 +90,7 @@ readExpression (List [Symbol "the", t, x]) = The <$> readExpression t <*> readEx
 readExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
 readExpression (List [Symbol "λ", ns, b]) = lambdaHelper ns b
 readExpression (List [Symbol "pi", ns, b]) = piHelper ns b
+readExpression (List [Symbol "Π", ns, b]) = piHelper ns b
 readExpression (List [Symbol "∀", ns, b]) = piHelper ns b
 readExpression (List [Symbol ".", x, Symbol fn]) = flip Field fn <$> readExpression x
 readExpression (List (Symbol "case":x:hs)) = Case <$> readExpression x <*> mapM readCase hs
