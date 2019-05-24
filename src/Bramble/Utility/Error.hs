@@ -112,6 +112,7 @@ data ReadError
   | ReadCaseError Text
   | ReadRowBinderError Text
   | ReadFieldError Text
+  | ReadIntError Text
   deriving Show
 
 instance Exception ReadError where
@@ -126,3 +127,4 @@ instance Exception ReadError where
   displayException (ReadCaseError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a case expression"]
   displayException (ReadRowBinderError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a row binder"]
   displayException (ReadFieldError exp) = unpack $ mconcat ["Could not read S-expression \"", exp, "\" as a field assignment"]
+  displayException (ReadIntError exp) = unpack $ mconcat ["Could not read symbol \"", exp, "\" as an integer"]

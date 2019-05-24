@@ -8,7 +8,7 @@ import Control.Arrow (second)
 import Control.Exception.Safe (MonadThrow, throwString)
 
 import Data.Monoid (mconcat)
-import Data.Functor ((<$>))
+import Data.Functor ((<$>), fmap)
 import Data.Function (flip, ($), (.))
 import Data.Maybe (Maybe(..))
 import Data.Eq (Eq, (==))
@@ -32,9 +32,12 @@ data NameTerm where
   NameLambda :: Maybe Text -> NameTerm -> NameTerm
 
   NameADTEliminate :: NameTerm -> [(Text, NameTerm)] -> NameTerm
+
   NameRow :: Bool -> [(Text, NameTerm)] -> [Text] -> NameTerm
   NameRowConstruct :: [(Text, NameTerm)] -> NameTerm
   NameRowEliminate :: NameTerm -> Text -> NameTerm
+
+  NameForeign :: Native NameTerm -> NameTerm
 deriving instance Show NameTerm
 deriving instance Eq NameTerm
 
@@ -56,6 +59,7 @@ debruijn n i (NameADTEliminate x args) = NameADTEliminate (debruijn n i x) $ sec
 debruijn n i (NameRow e fs es) = NameRow e (second (debruijn n i) <$> fs) es
 debruijn n i (NameRowConstruct fs) = NameRowConstruct $ second (debruijn n i) <$> fs
 debruijn n i (NameRowEliminate x fn) = NameRowEliminate (debruijn n i x) fn
+debruijn n i (NameForeign n') = NameForeign $ debruijn n i <$> n'
 
 renameTerm :: MonadThrow m => NameTerm -> m Term
 renameTerm (NameAnnotate e t) = TermInf <$> (Annotate
@@ -85,6 +89,7 @@ renameTerm (NameRowEliminate x fn) = do
   case rx of
     TermCheck y -> throwString . unpack $ mconcat ["Cannot infer type of \"", pretty y, "\""]
     TermInf y -> pure . TermInf $ RowEliminate y fn
+renameTerm (NameForeign n) = TermInf . Foreign <$> mapM (fmap repr . renameTerm) n
 
 rename :: MonadThrow m => [Statement NameTerm] -> m [Statement Term]
 rename = mapM (mapM renameTerm)

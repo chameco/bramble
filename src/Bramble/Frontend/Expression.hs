@@ -13,6 +13,7 @@ import Data.Text (Text)
 import Text.Show (Show)
 
 import Bramble.Core.Vernacular
+import Bramble.Core.Calculus (Native(..))
 import Bramble.Core.Named
 
 data Expression where
@@ -26,6 +27,7 @@ data Expression where
   RecordType :: Bool -> [(Text, Expression)] -> [Text] -> Expression
   Record :: [(Text, Expression)] -> Expression
   Field :: Expression -> Text -> Expression
+  Foreign :: Native Expression -> Expression
 deriving instance Show Expression
 deriving instance Eq Expression
 
@@ -43,6 +45,7 @@ compileExpression (Case x hs) = NameADTEliminate (compileExpression x) $ second 
 compileExpression (RecordType e fs es) = NameRow e (second compileExpression <$> fs) es
 compileExpression (Record fs) = NameRowConstruct $ second compileExpression <$> fs
 compileExpression (Field x fn) = NameRowEliminate (compileExpression x) fn
+compileExpression (Foreign n) = NameForeign $ compileExpression <$> n
 
 compileStatement :: Statement Expression -> Statement NameTerm
 compileStatement = fmap compileExpression

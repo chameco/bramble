@@ -12,12 +12,14 @@ import Data.Kind (Type)
 import Data.Monoid (mconcat, (<>))
 import Data.Functor (fmap, void, (<$>), ($>))
 import Data.Foldable (foldlM)
-import Data.Function (($), (.))
+import Data.Function (($), (.), flip)
 import Data.Tuple (fst)
 import Data.List (length)
 import Data.Int (Int)
-import Data.Text (Text)
+import Data.Text (Text, pack)
 import Data.Text.IO (putStrLn)
+
+import Text.Show (show)
 
 import Bramble.Utility.Pretty
 import Bramble.Core.Calculus
@@ -49,7 +51,7 @@ buildADT env n ps s = buildSum s' <> ((Name n, wrapType VStar, wrapMu $ wrapTerm
   where t = VADT n (VNeutral . NFree . Name . fst <$> ps) s
         t' = substAll (terms env) t
         s' = substAll (terms env) <$> s
-        wrapMu v = VMu $ \fix -> substValue (Name n) fix v
+        wrapMu v = VNeutral . NFix VStar . VLambda $ \fix -> substValue (Name n) fix v
         wrapConstructor = substValue (Name n) (wrapMu $ wrapTerm t')
         wrapTerm = curryADTWrap ps
         wrapType = curryADTTypeWrap ps
@@ -69,10 +71,11 @@ types = fmap (\(n, t, _) -> (n, t))
 check :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [(Name, Value, Value)] -> [Statement Term] -> m ()
 check e = void . foldlM process e
   where process :: [(Name, Value, Value)] -> Statement Term -> m [(Name, Value, Value)]
-        process env (Define n t x) = checkTerm ((Name n, t'):types env) x t' $> (Name n, t', x'):env
-          where x' = VNeutral . NFix t' . VLambda $ \fix -> substValue (Name n) fix . substAll (terms env) $ evalTerm x
+        process env (Define n t x) = liftIO (putStrLn . pack . show . quote . substAll (terms env) $ evalTerm x) *> liftIO (putStrLn . pack . show $ quote t') *> checkTerm ((Name n, t'):types env) (TermCheck $ quote x') t' $> (Name n, t', x'):env
+          where x' = flip evalCheck [] . quote . VNeutral . NFix t' . VLambda $ \fix -> substValue (Name n) fix . substAll (terms env) $ evalTerm x
                 t' = substAll (terms env) $ evalTerm t
         process env (Debug _) = pure env
+        process env (Print t) = infTerm (types env) t $> env
         process env (Infer _) = pure env
         process env (Check _ _) = pure env
         process env (Data n ps s) = pure $ buildADT env n (second evalTerm <$> ps) $ evalTerm <$> s
@@ -82,10 +85,12 @@ interpret :: forall (m :: Type -> Type). (MonadThrow m, MonadIO m) => [(Name, Va
 interpret e p = check e p *> foldlM process e p
   where process :: [(Name, Value, Value)] -> Statement Term -> m [(Name, Value, Value)]
         process env (Define n t x) = pure $ (Name n, t', x'):env
-          where x' = VNeutral . NFix t' . VLambda $ \fix -> substValue (Name n) fix . substAll (terms env) $ evalTerm x
+          where x' = flip evalCheck [] . quote . VNeutral . NFix t' . VLambda $ \fix -> substValue (Name n) fix . substAll (terms env) $ evalTerm x
                 t' = substAll (terms env) $ evalTerm t
         process env (Data n ps s) = pure $ buildADT env n (second evalTerm <$> ps) $ evalTerm <$> s
         process env (Debug x) = (liftIO . putStrLn . pretty $ quote x') $> env
+          where x' = substAll (terms env) $ evalTerm x
+        process env (Print x) = (liftIO . putStrLn . pretty $ quote x') $> env
           where x' = substAll (terms env) $ evalTerm x
         process env (Infer x) = do
           t' <- typeOfTerm (types env) . TermCheck $ quote x'

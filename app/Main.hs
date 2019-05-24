@@ -1,6 +1,6 @@
 module Main where
 
-import Control.Applicative (pure, (<**>))
+import Control.Applicative (pure, (*>), (<**>))
 import Control.Monad ((>>=))
 import Control.Monad.IO.Class (liftIO)
 import Control.Exception.Safe (Handler(..), catches, displayException)
@@ -41,7 +41,7 @@ options = subparser $ mconcat
   ]
 
 run :: Options -> IO ()
-run REPL{} = runInputT defaultSettings $ loop []
+run REPL{} = runInputT defaultSettings (loop []) *> putStrLn ""
   where loop :: [(Name, Value, Value)] -> InputT IO ()
         loop env = do
           l <- fmap pack <$> getInputLine "λ "

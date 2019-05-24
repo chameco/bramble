@@ -10,15 +10,19 @@ import Data.Functor ((<$>))
 import Data.Function (flip, ($), (.))
 import Data.Eq (Eq)
 import Data.Bool (Bool(..), otherwise)
+import Data.Maybe (Maybe(..))
 import Data.List (filter)
-import Data.Text (Text, unwords)
+import Data.Int (Int)
+import Data.Text (Text, unwords, unpack)
 
 import Text.Show (Show)
+import Text.Read (readMaybe)
 
 import Bramble.Utility.Pretty
 import Bramble.Utility.Error
 import Bramble.Core.Inductive
 import Bramble.Core.Vernacular
+import Bramble.Core.Calculus (Native(..))
 import Bramble.Frontend.Expression
 
 data SExp where
@@ -85,6 +89,11 @@ readField :: MonadThrow m => SExp -> m (Text, Expression)
 readField (List [Symbol n, x]) = (n,) <$> readExpression x
 readField exp = throw . ReadFieldError $ pretty exp
 
+readInt :: MonadThrow m => Text -> m Int
+readInt t = case readMaybe $ unpack t of
+  Just i -> pure i
+  Nothing -> throw $ ReadIntError t
+
 readExpression :: MonadThrow m => SExp -> m Expression
 readExpression (List [Symbol "the", t, x]) = The <$> readExpression t <*> readExpression x
 readExpression (List [Symbol "lambda", ns, b]) = lambdaHelper ns b
@@ -97,6 +106,10 @@ readExpression (List (Symbol "case":x:hs)) = Case <$> readExpression x <*> mapM 
 readExpression (List (Symbol "row":bs)) = rowHelper False bs
 readExpression (List (Symbol "row...":bs)) = rowHelper True bs
 readExpression (List (Symbol "record":fs)) = Record <$> mapM readField fs
+readExpression (List [Symbol "foreign-type", Symbol t]) = pure . Foreign $ NativeType t
+readExpression (List [Symbol "foreign-int", t, Symbol i]) = Foreign <$> (NativeInt <$> readExpression t <*> readInt i)
+readExpression (List [Symbol "foreign-string", t, Symbol s]) = Foreign <$> (NativeString <$> readExpression t <*> pure s)
+readExpression (List [Symbol "foreign-function", i, o, Symbol s]) = Foreign <$> (NativeFunction <$> readExpression i <*> readExpression o <*> pure s)
 readExpression (List (exp:exps)) = Call <$> readExpression exp <*> mapM readExpression exps
 readExpression (Symbol "Type") = pure Type
 readExpression (Symbol n) = pure $ Var n
@@ -114,6 +127,7 @@ readStatement :: MonadThrow m => SExp -> m (Statement Expression)
 readStatement (List [Symbol "define", Symbol n, ty, t]) = Define n <$> readExpression ty <*> readExpression t
 readStatement (List (Symbol "data":Symbol n:ps:exps)) = Data n <$> readBinders ps <*> readSum exps
 readStatement (List [Symbol "debug", x]) = Debug <$> readExpression x
+readStatement (List [Symbol "print", x]) = Print <$> readExpression x
 readStatement (List [Symbol "infer", x]) = Infer <$> readExpression x
 readStatement (List [Symbol "check", x, t]) = Check <$> readExpression x <*> readExpression t
 readStatement (List [Symbol "env"]) = pure Env
